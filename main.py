@@ -26,6 +26,9 @@ from cache.semantic_cache import check_semantic_cache, save_to_semantic_cache
 # 04 Router & Orchestrator (Intent, Model Selection & Fallback)
 from router.orchestrator import orchestrate_request
 
+# 08 Human in the Loop (Audit & Review Tickets)
+from hitl.tickets import list_pending_tickets, review_ticket
+
 load_dotenv()
 
 app = FastAPI(
@@ -48,6 +51,10 @@ class KeyCreateRequest(BaseModel):
 class RechargeRequest(BaseModel):
     key: str
     amount_usd: float
+
+class TicketReviewRequest(BaseModel):
+    decision: str  # "approved" or "rejected"
+    reviewer_name: Optional[str] = "Human Supervisor"
 
 
 # --- MODEL SELECTOR ---
@@ -112,6 +119,30 @@ async def check_balance(client_info: Dict[str, Any] = Depends(verify_api_gateway
     }
 
 
+# --- 08 HUMAN IN THE LOOP (REVIEW & AUDIT ENDPOINTS) ---
+
+@app.get("/v1/hitl/tickets/pending")
+def get_pending_human_tickets():
+    """
+    08 Human in the Loop:
+    List all high-risk requests pending human approval.
+    """
+    return list_pending_tickets()
+
+
+@app.post("/v1/hitl/tickets/{ticket_id}/review")
+def review_human_ticket(ticket_id: str, req: TicketReviewRequest):
+    """
+    08 Human in the Loop:
+    Supervisor approves or rejects an escalated ticket.
+    """
+    return review_ticket(
+        ticket_id=ticket_id,
+        decision=req.decision.lower(),
+        reviewer_name=req.reviewer_name
+    )
+
+
 # --- PROTECTED INFERENCE ENDPOINT ---
 
 @app.post("/chat")
@@ -152,6 +183,22 @@ async def chat(
     # One unified call for ANY provider!
     orch_result = await orchestrate_request(safe_prompt, req.provider)  # ainvoke => async invoke..
 
+    # 08 Human in the Loop: If high-risk, return review ticket immediately!
+    if orch_result.get("status") == "pending_human_approval":
+        return {
+            "status": "pending_human_approval",
+            "intent": orch_result["intent"],
+            "intent_confidence": orch_result.get("intent_confidence", 1.0),
+            "intent_reasoning": orch_result.get("intent_reasoning", ""),
+            "ticket_id": orch_result.get("ticket_id"),
+            "action_taken": orch_result.get("action_taken"),
+            "response": orch_result["response"],
+            "billing": {
+                "cost_usd": 0.0,
+                "remaining_balance_usd": client_info["balance_usd"]
+            }
+        }
+
     answer_text = orch_result["response"]
     provider_used = orch_result["provider_used"]
     response_metadata = orch_result.get("response_metadata", {})
@@ -177,6 +224,8 @@ async def chat(
     return {
         "provider": provider_used,
         "intent": orch_result["intent"],
+        "intent_confidence": orch_result.get("intent_confidence", 1.0),
+        "intent_reasoning": orch_result.get("intent_reasoning", ""),
         "failover_triggered": orch_result["failover_triggered"],
         "response": answer_text,
         "token_usage": token_usage,
