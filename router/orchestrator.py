@@ -143,18 +143,23 @@ def create_model_instance(provider: str):
 
 async def orchestrate_request(
     prompt: str,
-    requested_model: Optional[str] = "auto"
+    requested_model: Optional[str] = "auto",
+    inline_context: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     04 Router + Orchestrator:
     Dispatches execution paths based on classified intent:
     - Branch 1: 'high_risk' -> 08 Human in the Loop (Halt LLM, create approval ticket)
-    - Branch 2: 'rag'       -> 05 Retrieval / RAG (Augment prompt with 2-hour knowledge store)
+    - Branch 2: 'rag'       -> 05 Retrieval / RAG (Augment prompt with inline or 2-hour knowledge context)
     - Branch 3: 'general'   -> 07 Model Gateway (Direct fast failover inference)
     """
     # 1. Classify intent via fast Llama 3.1 8B structured output
     intent_data = await classify_intent(prompt)
     category = intent_data.category
+
+    # If the user explicitly provided inline context in the request, prioritize RAG intent
+    if inline_context and inline_context.strip():
+        category = IntentCategory.RAG
 
     # ==========================================================
     # BRANCH 1: HIGH RISK (08 Human in the Loop)
@@ -183,12 +188,23 @@ async def orchestrate_request(
         }
 
     # ==========================================================
-    # BRANCH 2: 05 RETRIEVAL / RAG (2-Hour Temporary Knowledge)
+    # BRANCH 2: 05 RETRIEVAL / RAG (Grounding Context)
     # ==========================================================
     execution_prompt = prompt
     sources_used = []
 
-    if category == IntentCategory.RAG:
+    # Priority A: If user passed inline context directly in request (Zero vector search latency!)
+    if inline_context and inline_context.strip():
+        sources_used = ["inline_request_context"]
+        execution_prompt = (
+            f"You are a helpful assistant. Use ONLY the following provided context to answer the user's question:\n"
+            f"<context>\n{inline_context.strip()}\n</context>\n\n"
+            f"User Question: {prompt}\n\n"
+            f"Please cite your sources based on the context above."
+        )
+
+    # Priority B: Query the 2-Hour Redis Knowledge Store if intent is RAG
+    elif category == IntentCategory.RAG:
         retrieved_chunks = await search_temporary_knowledge(prompt, top_k=2)
         if retrieved_chunks:
             sources_used = list(set([c["source"] for c in retrieved_chunks]))

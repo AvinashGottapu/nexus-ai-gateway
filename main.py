@@ -187,14 +187,6 @@ async def chat(
     # 01 Input Guardrails: PII Masking (Presidio) & Content Safety Check (Meta Llama Guard 3)
     safe_prompt = await apply_input_guardrails(req.prompt)
 
-    # 05 Temporary RAG: If user provided inline context lines, ingest into Redis (2-Hour TTL)
-    if req.context and req.context.strip():
-        await ingest_temporary_knowledge(
-            text=req.context,
-            source_name="inline_context",
-            ttl_seconds=7200
-        )
-
     # 03 Semantic Cache: Check for >= 90% semantic match in Redis
     cached_result, prompt_vector = await check_semantic_cache(safe_prompt)
     if cached_result:
@@ -216,7 +208,11 @@ async def chat(
     # 04 Router + Orchestrator: Dispatches intent, selects model, and executes with fallback
     # 1. Fetch Model via Orchestrator
     # One unified call for ANY provider!
-    orch_result = await orchestrate_request(safe_prompt, req.provider)  # ainvoke => async invoke..
+    orch_result = await orchestrate_request(
+        prompt=safe_prompt, 
+        requested_model=req.provider,
+        inline_context=req.context
+    )  # ainvoke => async invoke..
 
     # 08 Human in the Loop: If high-risk, return review ticket immediately!
     if orch_result.get("status") == "pending_human_approval":
