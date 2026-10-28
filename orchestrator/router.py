@@ -1,21 +1,17 @@
 import os
-import asyncio
 from enum import Enum
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, List
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 from langchain_groq import ChatGroq
-from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
 
-# 08 Human in the Loop ticket manager
-from hitl.tickets import create_human_review_ticket
-
-# 05 Temporary RAG store (2-hour auto-wiping cache)
-from rag.temporary_store import search_temporary_knowledge
+# Sibling modules inside the unified orchestrator folder:
+from orchestrator.hitl import create_human_review_ticket
+from orchestrator.rag import search_temporary_knowledge
+from orchestrator.model_gateway import execute_model_gateway
 
 
-# --- 1. PRODUCTION-GRADE INTENT CLASSIFICATION (The Dispatcher) ---
+# --- 1. PRODUCTION-GRADE INTENT CLASSIFICATION ---
 
 class IntentCategory(str, Enum):
     HIGH_RISK = "high_risk"
@@ -88,71 +84,20 @@ async def classify_intent(prompt: str) -> IntentClassification:
         )
 
 
-# --- 2. MODEL POLICY SELECTOR ---
-
-def resolve_model(requested_model: Optional[str], prompt: str) -> str:
-    """
-    Resolves model alias into a concrete provider:
-    - 'fast'  -> Groq (LPU speed)
-    - 'cheap' -> Gemini Flash (lowest cost)
-    - 'auto'  -> Inspects prompt complexity (simple vs complex)
-    """
-    if not requested_model or requested_model == "auto":
-        word_count = len(prompt.split())
-        if word_count > 100 or "code" in prompt.lower() or "debug" in prompt.lower():
-            return "openai"
-        return "groq"
-
-    req = requested_model.lower()
-    if req in ["fast", "groq"]:
-        return "groq"
-    elif req in ["cheap", "gemini"]:
-        return "gemini"
-    elif req in ["smart", "openai"]:
-        return "openai"
-
-    return req
-
-
-# --- 3. MODEL INSTANTIATOR ---
-
-def create_model_instance(provider: str):
-    """Initializes the LangChain chat model for a given provider."""
-    if provider == "groq":
-        return ChatGroq(
-            model="llama-3.3-70b-versatile",
-            api_key=os.getenv("GROQ_API_KEY"),
-            timeout=10.0
-        )
-    elif provider == "gemini":
-        return ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            google_api_key=os.getenv("GOOGLE_API_KEY"),
-            timeout=10.0
-        )
-    elif provider == "openai":
-        return ChatOpenAI(
-            model="gpt-4o-mini",
-            api_key=os.getenv("OPENAI_API_KEY"),
-            timeout=10.0
-        )
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown provider '{provider}'")
-
-
-# --- 4. ORCHESTRATOR WITH ACTIVE INTENT BRANCHING (Layer B) ---
+# --- 2. MASTER ROUTER & ORCHESTRATOR (04 Router) ---
 
 async def orchestrate_request(
     prompt: str,
     requested_model: Optional[str] = "auto",
-    inline_context: Optional[str] = None
+    inline_context: Optional[str] = None,
+    max_tokens: int = 1024
 ) -> Dict[str, Any]:
     """
     04 Router + Orchestrator:
     Dispatches execution paths based on classified intent:
     - Branch 1: 'high_risk' -> 08 Human in the Loop (Halt LLM, create approval ticket)
     - Branch 2: 'rag'       -> 05 Retrieval / RAG (Augment prompt with inline or 2-hour knowledge context)
-    - Branch 3: 'general'   -> 07 Model Gateway (Direct fast failover inference)
+    - Branch 3: 'general'   -> 07 Model Gateway (Token budgets, retries, and fallback cascade)
     """
     # 1. Classify intent via fast Llama 3.1 8B structured output
     intent_data = await classify_intent(prompt)
@@ -218,44 +163,24 @@ async def orchestrate_request(
             )
 
     # ==========================================================
-    # BRANCH 3: 07 MODEL GATEWAY (Failover Circuit Breaker)
+    # BRANCH 3: 07 MODEL GATEWAY (Token Budgets, Retries & Failover)
     # ==========================================================
-    primary_provider = resolve_model(requested_model, execution_prompt)
-
-    fallback_chain = ["groq", "gemini", "openai"]
-    if primary_provider in fallback_chain:
-        fallback_chain.remove(primary_provider)
-    provider_order = [primary_provider] + fallback_chain
-
-    last_error = None
-    provider_used = primary_provider
-
-    for provider in provider_order:
-        try:
-            model = create_model_instance(provider)
-            # Execute LLM call asynchronously with grounded prompt
-            response = await model.ainvoke(execution_prompt)
-            provider_used = provider
-
-            return {
-                "status": "completed",
-                "intent": category.value,
-                "intent_confidence": intent_data.confidence,
-                "intent_reasoning": intent_data.reasoning,
-                "ticket_id": None,
-                "sources_used": sources_used,
-                "provider_used": provider_used,
-                "failover_triggered": provider_used != primary_provider,
-                "response": response.content,
-                "response_metadata": getattr(response, "response_metadata", {})
-            }
-        except Exception as e:
-            print(f"⚠️ Provider '{provider}' failed ({e}). Attempting automatic failover...")
-            last_error = e
-            continue
-
-    # If all providers in the chain fail
-    raise HTTPException(
-        status_code=503,
-        detail=f"All upstream LLM providers failed. Last error: {str(last_error)}"
+    gateway_result = await execute_model_gateway(
+        prompt=execution_prompt,
+        requested_model=requested_model,
+        max_tokens=max_tokens,
+        retry_attempts=1
     )
+
+    return {
+        "status": gateway_result["status"],
+        "intent": category.value,
+        "intent_confidence": intent_data.confidence,
+        "intent_reasoning": intent_data.reasoning,
+        "ticket_id": None,
+        "sources_used": sources_used,
+        "provider_used": gateway_result["provider_used"],
+        "failover_triggered": gateway_result["failover_triggered"],
+        "response": gateway_result["response"],
+        "response_metadata": gateway_result["response_metadata"]
+    }

@@ -19,6 +19,7 @@ dependencies = [
     "pydantic>=2.9.0",
     "python-dotenv>=1.0.1",
     "redis>=8.1.0",
+    "tavily-python>=0.8.5",
     "uvicorn[standard]>=0.32.0",
 ]
 

@@ -23,14 +23,11 @@ from guardrails.input_guard import apply_input_guardrails
 # 03 Semantic Cache (Redis Cosine Similarity Engine)
 from cache.semantic_cache import check_semantic_cache, save_to_semantic_cache
 
-# 04 Router & Orchestrator (Intent, Model Selection & Fallback)
-from router.orchestrator import orchestrate_request
-
-# 08 Human in the Loop (Audit & Review Tickets)
-from hitl.tickets import list_pending_tickets, review_ticket
-
-# 05 Temporary RAG Knowledge Store (2-Hour Redis TTL)
-from rag.temporary_store import ingest_temporary_knowledge
+# Orchestrator & Layer B (Router 04, Model Gateway 07, HITL 08, RAG 05)
+from orchestrator.router import orchestrate_request
+from orchestrator.hitl import list_pending_tickets, review_ticket
+from orchestrator.rag import ingest_temporary_knowledge
+from orchestrator.model_gateway import calculate_token_cost
 
 load_dotenv()
 
@@ -237,17 +234,14 @@ async def chat(
     # 03 Semantic Cache: Store (prompt, vector, answer) in Redis for future hits
     await save_to_semantic_cache(safe_prompt, prompt_vector, answer_text, provider_used)
 
-    # 3. Dynamic Cost Calculation based on token usage
-    # (Default nominal cost $0.0002 or extracted from response_metadata)
-    cost = 0.0002
+    # 3. Dynamic Cost Calculation based on model-specific pricing catalog
+    # (Default nominal cost $0.0001 or computed per provider rates)
+    cost = 0.0001
     token_usage = response_metadata.get("token_usage", {})
     if token_usage:
         prompt_tokens = token_usage.get("prompt_tokens", 0)
         completion_tokens = token_usage.get("completion_tokens", 0)
-        # Standard blending rate (~$0.50/M prompt, ~$1.00/M completion)
-        cost = round((prompt_tokens * 0.0000005) + (completion_tokens * 0.0000010), 6)
-        if cost == 0:
-            cost = 0.0001
+        cost = calculate_token_cost(provider_used, prompt_tokens, completion_tokens)
 
     # 4. Atomically Deduct from Developer's SQLite Wallet
     remaining_balance = deduct_usage_cost(client_info["key_hash"], cost)
