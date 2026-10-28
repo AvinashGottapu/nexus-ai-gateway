@@ -1,0 +1,29 @@
+# Environment secrets & keys (CRITICAL: NEVER COMMIT REAL KEYS)
+.env
+*.env
+.env.*
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+gateway/gateway.db
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
