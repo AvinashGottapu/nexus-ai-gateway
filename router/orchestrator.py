@@ -1,7 +1,7 @@
 import os
 import asyncio
 from enum import Enum
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 from langchain_groq import ChatGroq
@@ -10,6 +10,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 # 08 Human in the Loop ticket manager
 from hitl.tickets import create_human_review_ticket
+
+# 05 Temporary RAG store (2-hour auto-wiping cache)
+from rag.temporary_store import search_temporary_knowledge
 
 
 # --- 1. PRODUCTION-GRADE INTENT CLASSIFICATION (The Dispatcher) ---
@@ -146,7 +149,7 @@ async def orchestrate_request(
     04 Router + Orchestrator:
     Dispatches execution paths based on classified intent:
     - Branch 1: 'high_risk' -> 08 Human in the Loop (Halt LLM, create approval ticket)
-    - Branch 2: 'rag'       -> 05 Retrieval / RAG (Augment prompt with knowledge context)
+    - Branch 2: 'rag'       -> 05 Retrieval / RAG (Augment prompt with 2-hour knowledge store)
     - Branch 3: 'general'   -> 07 Model Gateway (Direct fast failover inference)
     """
     # 1. Classify intent via fast Llama 3.1 8B structured output
@@ -171,6 +174,7 @@ async def orchestrate_request(
             "action_taken": "escalated_to_human_supervisor",
             "provider_used": "none",
             "failover_triggered": False,
+            "sources_used": [],
             "response": (
                 "Your request involves a sensitive operation (financial, security, or data modification). "
                 f"Review Ticket #{ticket_id} has been created and submitted to a human supervisor for authorization."
@@ -179,9 +183,27 @@ async def orchestrate_request(
         }
 
     # ==========================================================
-    # BRANCH 2: GENERAL INFERENCE (07 Model Gateway Failover)
+    # BRANCH 2: 05 RETRIEVAL / RAG (2-Hour Temporary Knowledge)
     # ==========================================================
-    primary_provider = resolve_model(requested_model, prompt)
+    execution_prompt = prompt
+    sources_used = []
+
+    if category == IntentCategory.RAG:
+        retrieved_chunks = await search_temporary_knowledge(prompt, top_k=2)
+        if retrieved_chunks:
+            sources_used = list(set([c["source"] for c in retrieved_chunks]))
+            context_block = "\n\n".join([f"[{c['source']}]: {c['chunk_text']}" for c in retrieved_chunks])
+            execution_prompt = (
+                f"You are a helpful assistant. Use ONLY the following verified context (stored temporarily for 2 hours) to answer the user's question:\n"
+                f"<context>\n{context_block}\n</context>\n\n"
+                f"User Question: {prompt}\n\n"
+                f"Please cite your sources based on the context above."
+            )
+
+    # ==========================================================
+    # BRANCH 3: 07 MODEL GATEWAY (Failover Circuit Breaker)
+    # ==========================================================
+    primary_provider = resolve_model(requested_model, execution_prompt)
 
     fallback_chain = ["groq", "gemini", "openai"]
     if primary_provider in fallback_chain:
@@ -194,8 +216,8 @@ async def orchestrate_request(
     for provider in provider_order:
         try:
             model = create_model_instance(provider)
-            # Execute LLM call asynchronously
-            response = await model.ainvoke(prompt)
+            # Execute LLM call asynchronously with grounded prompt
+            response = await model.ainvoke(execution_prompt)
             provider_used = provider
 
             return {
@@ -204,6 +226,7 @@ async def orchestrate_request(
                 "intent_confidence": intent_data.confidence,
                 "intent_reasoning": intent_data.reasoning,
                 "ticket_id": None,
+                "sources_used": sources_used,
                 "provider_used": provider_used,
                 "failover_triggered": provider_used != primary_provider,
                 "response": response.content,

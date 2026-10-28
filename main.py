@@ -29,6 +29,9 @@ from router.orchestrator import orchestrate_request
 # 08 Human in the Loop (Audit & Review Tickets)
 from hitl.tickets import list_pending_tickets, review_ticket
 
+# 05 Temporary RAG Knowledge Store (2-Hour Redis TTL)
+from rag.temporary_store import ingest_temporary_knowledge
+
 load_dotenv()
 
 app = FastAPI(
@@ -42,6 +45,11 @@ app = FastAPI(
 class PromptRequest(BaseModel):
     prompt: str
     provider: Optional[str] = "groq"  # "groq", "openai", "gemini"
+    context: Optional[str] = None  # Optional inline lines of information (stored 2 hours)
+
+class IngestKnowledgeRequest(BaseModel):
+    text: str
+    source_name: Optional[str] = "user_document"
 
 class KeyCreateRequest(BaseModel):
     name: str = "My Project"
@@ -143,6 +151,25 @@ def review_human_ticket(ticket_id: str, req: TicketReviewRequest):
     )
 
 
+# --- 05 RETRIEVAL / RAG (2-HOUR TEMPORARY KNOWLEDGE INGESTION) ---
+
+@app.post("/v1/rag/ingest")
+async def ingest_knowledge_document(
+    req: IngestKnowledgeRequest,
+    client_info: Dict[str, Any] = Depends(verify_api_gateway)
+):
+    """
+    05 Retrieval / RAG:
+    Ingest documents or text lines into Redis with 2-hour TTL (7,200 seconds).
+    Self-destructs automatically after 2 hours!
+    """
+    return await ingest_temporary_knowledge(
+        text=req.text,
+        source_name=req.source_name,
+        ttl_seconds=7200
+    )
+
+
 # --- PROTECTED INFERENCE ENDPOINT ---
 
 @app.post("/chat")
@@ -159,6 +186,14 @@ async def chat(
     """
     # 01 Input Guardrails: PII Masking (Presidio) & Content Safety Check (Meta Llama Guard 3)
     safe_prompt = await apply_input_guardrails(req.prompt)
+
+    # 05 Temporary RAG: If user provided inline context lines, ingest into Redis (2-Hour TTL)
+    if req.context and req.context.strip():
+        await ingest_temporary_knowledge(
+            text=req.context,
+            source_name="inline_context",
+            ttl_seconds=7200
+        )
 
     # 03 Semantic Cache: Check for >= 90% semantic match in Redis
     cached_result, prompt_vector = await check_semantic_cache(safe_prompt)
@@ -226,6 +261,7 @@ async def chat(
         "intent": orch_result["intent"],
         "intent_confidence": orch_result.get("intent_confidence", 1.0),
         "intent_reasoning": orch_result.get("intent_reasoning", ""),
+        "sources_used": orch_result.get("sources_used", []),
         "failover_triggered": orch_result["failover_triggered"],
         "response": answer_text,
         "token_usage": token_usage,
