@@ -44,12 +44,13 @@ Classify the user prompt into exactly ONE category:
    - Requesting account deletion, database wiping, or canceling an active subscription.
    - NOTE: Merely asking ABOUT policy (e.g., 'What is your refund policy on sale items?') is NOT high_risk; it is 'rag'.
 
-2. 'rag': The user is inquiring about company policies, product manuals, specs, pricing, shipping, or catalog facts:
-   - Questions about returns, warranties, terms of service, shipping times.
-   - Questions about product specs, documentation, or FAQs.
+2. 'rag': The user is inquiring about company policies, product manuals, specs, pricing, shipping, or catalog facts AND THAT CONTEXT IS MISSING:
+   - Questions about returns, warranties, terms of service, shipping times where no reference context is given.
+   - Questions about product specs, documentation, or FAQs requiring external knowledge lookup.
+   - CRITICAL RULE: If the user ALREADY provided the reference context or passage directly inside the prompt (e.g. 'Based on this text: ...', 'Here is our policy: [...] Question: ...'), do NOT classify as 'rag'; classify as 'general' because the context is already present!
 
-3. 'general': General discussion, coding help, technical debugging, greetings, or creative tasks:
-   - Example: 'How do I avoid wiping database tables during migrations?' is 'general' technical help.
+3. 'general': General discussion, coding help, technical debugging, greetings, creative tasks, OR any question where the reference context is ALREADY provided inside the prompt:
+   - Example: 'Based on this paragraph [Returns within 30 days], can I return my laptop?' is 'general' because the context is already right in the prompt!
 """
 
 
