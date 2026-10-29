@@ -8,6 +8,9 @@ from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+# Layer D: Reliability & Scale (Stateful Circuit Breaker)
+from orchestrator.circuit_breaker import circuit_breaker
+
 
 # --- 1. MODEL PRICING CATALOG (USD per single token) ---
 
@@ -220,6 +223,11 @@ async def execute_model_gateway(
     invocation_input = list(chat_history) + [HumanMessage(content=prompt)] if chat_history else prompt
 
     for provider in provider_order:
+        # ⚡ 1. CIRCUIT BREAKER CHECK (Instantly skips dead providers in 0.0ms!)
+        if not circuit_breaker.can_execute(provider):
+            print(f"⚡ Circuit OPEN for '{provider}' (outage cooldown active). Bypassing in 0.0ms...")
+            continue
+
         # Fetch the shared singleton semaphore for this provider
         sem = PROVIDER_SEMAPHORES.get(provider, GLOBAL_FALLBACK_SEMAPHORE)
 
@@ -241,6 +249,9 @@ async def execute_model_gateway(
 
                 provider_used = provider
 
+                # ✅ 2. RECORD SUCCESS (Keeps circuit healthy and resets failure counters)
+                circuit_breaker.record_success(provider)
+
                 return {
                     "status": "completed",
                     "provider_used": provider_used,
@@ -252,14 +263,16 @@ async def execute_model_gateway(
                 # Queue congestion: Provider queue didn't open a slot in 2s
                 last_error = f"Concurrency queue timeout (> {SEMAPHORE_QUEUE_TIMEOUT}s wait) for '{provider}'"
                 print(f"⚠️ Provider '{provider}' queue congested. Tripping failover to next provider...")
+                circuit_breaker.record_failure(provider)
                 break  # Skip remaining retries on this provider, immediately try next fallback!
             except Exception as e:
                 last_error = e
+                circuit_breaker.record_failure(provider)
                 if attempt < retry_attempts:
                     await asyncio.sleep(0.3)  # Brief backoff before retry
                     continue
                 else:
-                    print(f"⚠️ Provider '{provider}' failed ({e}). Tripping circuit breaker to next fallback...")
+                    print(f"⚠️ Provider '{provider}' failed ({e}). Tripping to next fallback...")
                     break
 
     # If all providers in the fallback cascade fail

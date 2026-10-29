@@ -4,6 +4,7 @@ import uuid
 import math
 from typing import Dict, Any, List, Optional
 from gateway.identity import get_redis_client
+from orchestrator.circuit_breaker import circuit_breaker
 
 # =====================================================================
 # LAYER D: 09 OBSERVABILITY (Traces • p95 Latency • Tokens • Cost)
@@ -169,7 +170,8 @@ async def get_gateway_metrics() -> Dict[str, Any]:
                 "groq": groq_requests,
                 "gemini": gemini_requests,
                 "openai": openai_requests
-            }
+            },
+            "circuit_breakers": circuit_breaker.get_status()
         }
     except Exception as e:
         return {
