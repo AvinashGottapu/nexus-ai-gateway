@@ -24,7 +24,7 @@ def _get_session_key(session_id: str) -> str:
     return f"session:{session_id}:messages"
 
 
-def get_session_messages(session_id: str, max_messages: int = MAX_HISTORY_MESSAGES) -> List[Dict[str, str]]:
+async def get_session_messages(session_id: str, max_messages: int = MAX_HISTORY_MESSAGES) -> List[Dict[str, str]]:
     """
     Retrieves the raw JSON message history from Redis:
     [
@@ -35,13 +35,13 @@ def get_session_messages(session_id: str, max_messages: int = MAX_HISTORY_MESSAG
     if not session_id:
         return []
 
-    r = get_redis_client()
+    r = await get_redis_client()
     if not r:
         return []
 
     try:
         key = _get_session_key(session_id)
-        raw_items = r.lrange(key, -max_messages, -1)
+        raw_items = await r.lrange(key, -max_messages, -1)
         if not raw_items:
             return []
 
@@ -57,7 +57,7 @@ def get_session_messages(session_id: str, max_messages: int = MAX_HISTORY_MESSAG
         return []
 
 
-def get_session_langchain_messages(
+async def get_session_langchain_messages(
     session_id: str, 
     max_messages: int = MAX_HISTORY_MESSAGES
 ) -> List[BaseMessage]:
@@ -67,13 +67,13 @@ def get_session_langchain_messages(
     - role 'assistant' -> AIMessage
     - role 'system'    -> SystemMessage
     """
-    json_messages = get_session_messages(session_id, max_messages=max_messages)
+    json_messages = await get_session_messages(session_id, max_messages=max_messages)
     langchain_messages: List[BaseMessage] = []
 
     for msg in json_messages:
         role = msg.get("role", "").lower()
         content = msg.get("content", "")
-    
+
         if role == "user":
             langchain_messages.append(HumanMessage(content=content))
         elif role == "assistant":
@@ -84,7 +84,7 @@ def get_session_langchain_messages(
     return langchain_messages
 
 
-def append_session_message(
+async def append_session_message(
     session_id: str,
     role: str,
     content: str,
@@ -98,7 +98,7 @@ def append_session_message(
     if not session_id or not content.strip():
         return
 
-    r = get_redis_client()
+    r = await get_redis_client()
     if not r:
         return
 
@@ -108,28 +108,28 @@ def append_session_message(
 
         # Atomic Redis Pipeline: Push -> Trim -> Refresh TTL
         pipe = r.pipeline()
-        pipe.rpush(key, payload) 
-        pipe.ltrim(key, -MAX_HISTORY_MESSAGES, -1)  # Keep only recent sliding window (only last 10)
+        pipe.rpush(key, payload)
+        pipe.ltrim(key, -MAX_HISTORY_MESSAGES, -1)  # Keep only recent sliding window
         pipe.expire(key, ttl_seconds)                # Reset 2-hour TTL
-        pipe.execute()
+        await pipe.execute()
     except Exception as e:
         print(f"⚠️ Session store write error ({e})")
 
 
-def clear_session(session_id: str) -> bool:
+async def clear_session(session_id: str) -> bool:
     """
     Clears the conversation session if the user clicks 'New Chat' or resets.
     """
     if not session_id:
         return False
-    
-    r = get_redis_client()
+
+    r = await get_redis_client()
     if not r:
         return False
 
     try:
         key = _get_session_key(session_id)
-        r.delete(key)
+        await r.delete(key)
         return True
     except Exception as e:
         print(f"⚠️ Session store clear error ({e})")

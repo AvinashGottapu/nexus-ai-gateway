@@ -32,6 +32,17 @@ from gateway.session_store import (
     clear_session
 )
 
+# Layer D: 09 Observability (Traces, p95 Latency, Token Accounting & Cost Telemetry)
+from observability.tracer import (
+    generate_trace_id,
+    RequestTimer,
+    record_request_metrics,
+    get_gateway_metrics
+)
+
+# Layer D: Evaluation (User Feedback Store & Golden Set)
+from eval.feedback import submit_feedback, get_feedback_summary
+
 # Orchestrator & Layer B (Router 04, Model Gateway 07, HITL 08, RAG 05)
 from orchestrator.router import orchestrate_request
 from orchestrator.hitl import list_pending_tickets, review_ticket
@@ -70,6 +81,12 @@ class RechargeRequest(BaseModel):
 class TicketReviewRequest(BaseModel):
     decision: str  # "approved" or "rejected"
     reviewer_name: Optional[str] = "Human Supervisor"
+
+class FeedbackRequest(BaseModel):
+    trace_id: str
+    rating: Optional[int] = None      # 1 to 5 stars
+    thumbs: Optional[str] = None      # "up" or "down"
+    comment: Optional[str] = None     # User notes / correction text
 
 
 # --- MODEL SELECTOR ---
@@ -190,30 +207,54 @@ async def chat(
     2. Enforces Distributed Redis Sliding-Window Rate Limit
     3. Enforces Credit Balance ($0.00 check)
     4. Calls LLM & Deducts dynamic token usage cost
+    5. Layer D: Generates trace_id and records latency telemetry
     """
+    # Layer D: 09 Observability - Initialize distributed trace timer
+    timer = RequestTimer()
+    trace_id = generate_trace_id()
+
     # 01 Input Guardrails: PII Masking (Presidio) & Content Safety Check (Meta Llama Guard 3)
+    timer.start_phase()
     safe_prompt = await apply_input_guardrails(req.prompt)
+    timer.record_phase("input_guardrails_ms")
 
     # Layer C: Session Store (Per-user conversation • TTL)
     session_id = req.session_id or generate_session_id()
-    chat_history = get_session_langchain_messages(session_id)
+    chat_history = await get_session_langchain_messages(session_id)
 
     # 03 Semantic Cache: Check for >= 90% semantic match in Redis
+    timer.start_phase()
     cached_result, prompt_vector = await check_semantic_cache(safe_prompt)
+    timer.record_phase("cache_lookup_ms")
+
     if cached_result:
+        timer.start_phase()
         # Diagram rule: "HIT - still validate" before streaming answer
         guard_output = await apply_output_guardrails(
             user_prompt=req.prompt,
             draft_answer=cached_result["response"],
             retrieved_context=req.context
         )
+        timer.record_phase("output_guardrails_ms")
 
         # Layer C: Session Store - Append cached turn to memory
-        append_session_message(session_id, "user", req.prompt)
-        append_session_message(session_id, "assistant", guard_output["sanitized_response"])
+        await append_session_message(session_id, "user", req.prompt)
+        await append_session_message(session_id, "assistant", guard_output["sanitized_response"])
+
+        timings = timer.get_summary()
+
+        # Layer D: Record cache hit telemetry
+        await record_request_metrics(
+            provider=cached_result["provider"],
+            cache_hit=True,
+            total_tokens=0,
+            cost_usd=0.0,
+            latency_ms=timings["total_latency_ms"]
+        )
 
         # ⚡ CACHE HIT: Instant ~10ms return, $0.00 cost, skip LLM entirely!
         return {
+            "trace_id": trace_id,
             "session_id": session_id,
             "provider": cached_result["provider"],
             "response": guard_output["sanitized_response"],
@@ -226,6 +267,7 @@ async def chat(
                 "output_passed": guard_output["passed"],
                 "rejection_type": guard_output.get("rejection_type")
             },
+            "timings_ms": timings,
             "billing": {
                 "cost_usd": 0.0,
                 "remaining_balance_usd": client_info["balance_usd"]
@@ -235,16 +277,20 @@ async def chat(
     # 04 Router + Orchestrator: Dispatches intent, selects model, and executes with fallback
     # 1. Fetch Model via Orchestrator
     # One unified call for ANY provider!
+    timer.start_phase()
     orch_result = await orchestrate_request(
         prompt=safe_prompt, 
         requested_model=req.provider,
         inline_context=req.context,
         chat_history=chat_history
     )  # ainvoke => async invoke..
+    timer.record_phase("orchestrator_llm_ms")
 
     # 08 Human in the Loop: If high-risk, return review ticket immediately!
     if orch_result.get("status") == "pending_human_approval":
+        timings = timer.get_summary()
         return {
+            "trace_id": trace_id,
             "session_id": session_id,
             "status": "pending_human_approval",
             "intent": orch_result["intent"],
@@ -253,6 +299,7 @@ async def chat(
             "ticket_id": orch_result.get("ticket_id"),
             "action_taken": orch_result.get("action_taken"),
             "response": orch_result["response"],
+            "timings_ms": timings,
             "billing": {
                 "cost_usd": 0.0,
                 "remaining_balance_usd": client_info["balance_usd"]
@@ -264,25 +311,29 @@ async def chat(
     response_metadata = orch_result.get("response_metadata", {})
 
     # 01 Output Guardrails: Safety • Privacy (PII & Key Redaction) • Grounding (Hallucination Judge)
+    timer.start_phase()
     output_guard = await apply_output_guardrails(
         user_prompt=req.prompt,
         draft_answer=answer_text,
         retrieved_context=req.context
     )
     final_answer = output_guard["sanitized_response"]
+    timer.record_phase("output_guardrails_ms")
 
     # 03 Semantic Cache: Diagram rule: "Write only after output validation"
     if output_guard["passed"]:
         await save_to_semantic_cache(safe_prompt, prompt_vector, final_answer, provider_used)
 
     # Layer C: Session Store - Append conversation turns to Redis with 2-hour sliding window TTL
-    append_session_message(session_id, "user", req.prompt)
-    append_session_message(session_id, "assistant", final_answer)
+    await append_session_message(session_id, "user", req.prompt)
+    await append_session_message(session_id, "assistant", final_answer)
 
     # 3. Dynamic Cost Calculation based on model-specific pricing catalog
     # (Default nominal cost $0.0001 or computed per provider rates)
     cost = 0.0001
     token_usage = response_metadata.get("token_usage", {})
+    prompt_tokens = 0
+    completion_tokens = 0
     if token_usage:
         prompt_tokens = token_usage.get("prompt_tokens", 0)
         completion_tokens = token_usage.get("completion_tokens", 0)
@@ -291,7 +342,19 @@ async def chat(
     # 4. Atomically Deduct from Developer's SQLite Wallet
     remaining_balance = deduct_usage_cost(client_info["key_hash"], cost)
 
+    timings = timer.get_summary()
+
+    # Layer D: 09 Observability - Record telemetry metrics to Redis
+    await record_request_metrics(
+        provider=provider_used,
+        cache_hit=False,
+        total_tokens=prompt_tokens + completion_tokens,
+        cost_usd=cost,
+        latency_ms=timings["total_latency_ms"]
+    )
+
     return {
+        "trace_id": trace_id,
         "session_id": session_id,
         "provider": provider_used,
         "intent": orch_result["intent"],
@@ -306,6 +369,7 @@ async def chat(
             "hazard_code": output_guard.get("hazard_code")
         },
         "token_usage": token_usage,
+        "timings_ms": timings,
         "billing": {
             "cost_usd": cost,
             "remaining_balance_usd": remaining_balance
@@ -314,9 +378,43 @@ async def chat(
 
 
 @app.post("/v1/chat/clear-session")
-def reset_chat_session(session_id: str):
+async def reset_chat_session(session_id: str):
     """
     Layer C: Clears the conversation session memory in Redis.
     """
-    success = clear_session(session_id)
+    success = await clear_session(session_id)
     return {"session_id": session_id, "cleared": success}
+
+
+# --- 09 PRODUCTION OPERATIONS (OBSERVABILITY & METRICS DASHBOARD) ---
+
+@app.get("/v1/observability/metrics")
+async def gateway_telemetry():
+    """
+    Layer D: 09 Observability Dashboard:
+    Returns total requests, cache hit ratio, p95 & avg latency, tokens & cost spend.
+    """
+    return await get_gateway_metrics()
+
+
+# --- LAYER D: EVALUATION & USER FEEDBACK ---
+
+@app.post("/v1/feedback")
+def give_user_feedback(req: FeedbackRequest):
+    """
+    Layer D: Evaluation - Records user ratings (👍/👎, 1-5 stars, comments) mapped to trace_id.
+    """
+    return submit_feedback(
+        trace_id=req.trace_id,
+        rating=req.rating,
+        thumbs=req.thumbs,
+        comment=req.comment
+    )
+
+
+@app.get("/v1/feedback/summary")
+def view_feedback_telemetry():
+    """
+    Layer D: Evaluation - Returns overall user satisfaction percentage and recent feedback records.
+    """
+    return get_feedback_summary()
