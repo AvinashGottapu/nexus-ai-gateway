@@ -171,7 +171,23 @@ def create_model_instance(provider: str, max_tokens: int = 1024, timeout: float 
         raise HTTPException(status_code=400, detail=f"Unknown provider '{provider}'")
 
 
-# --- 4. EXECUTE WITH AUTOMATIC RETRIES & FALLBACK CIRCUIT BREAKER ---
+# --- 4. CONCURRENCY CAPS (asyncio.Semaphore) ---
+
+# Master fallback semaphore singleton (Ensures unknown/default providers never create unlimited semaphores)
+GLOBAL_FALLBACK_SEMAPHORE = asyncio.Semaphore(15)
+
+# Per-provider concurrency caps (Protects upstream models from 429 Rate Limit Exceeded)
+PROVIDER_SEMAPHORES: Dict[str, asyncio.Semaphore] = {
+    "groq": asyncio.Semaphore(15),      # Groq fast LPUs: max 15 active calls
+    "openai": asyncio.Semaphore(20),    # OpenAI GPT-4o-mini: max 20 active calls
+    "gemini": asyncio.Semaphore(15)     # Gemini 1.5 Flash: max 15 active calls
+}
+
+# Maximum time (in seconds) a request will wait in a provider's queue before auto-failing over
+SEMAPHORE_QUEUE_TIMEOUT = 2.0
+
+
+# --- 5. EXECUTE WITH AUTOMATIC RETRIES, CONCURRENCY CAPS & FALLBACK CASCADE ---
 
 async def execute_model_gateway(
     prompt: str,
@@ -184,7 +200,9 @@ async def execute_model_gateway(
     07 Model Gateway:
     - Enforces token budgets (max_tokens)
     - Enforces timeouts (10s)
-    - Automatic retries with jitter
+    - Concurrency caps per provider (asyncio.Semaphore) to prevent 429 rate limits
+    - Smart queue timeout (2s): auto-fails over if a provider queue is congested
+    - Automatic retries with backoff
     - Seamless fallback cascade: Primary -> Fallback 1 -> Fallback 2
     - Context-aware multi-turn conversations (supports chat_history from Session Store)
     """
@@ -202,11 +220,25 @@ async def execute_model_gateway(
     invocation_input = list(chat_history) + [HumanMessage(content=prompt)] if chat_history else prompt
 
     for provider in provider_order:
+        # Fetch the shared singleton semaphore for this provider
+        sem = PROVIDER_SEMAPHORES.get(provider, GLOBAL_FALLBACK_SEMAPHORE)
+
         # Try primary/fallback with retry loop
         for attempt in range(retry_attempts + 1):
             try:
                 model = create_model_instance(provider, max_tokens=max_tokens, timeout=10.0)
-                response = await model.ainvoke(invocation_input)
+
+                # Step 1: Wait max 2.0s ONLY to get an open slot in the concurrency queue
+                async with asyncio.timeout(SEMAPHORE_QUEUE_TIMEOUT):
+                    await sem.acquire()  # Countdown applies strictly to queue waiting!
+
+                try:
+                    # Step 2: Once inside the slot, the model gets its full 10.0s thinking budget!
+                    response = await model.ainvoke(invocation_input)
+                finally:
+                    # Always release the concurrency slot so the next queued request can enter immediately
+                    sem.release()
+
                 provider_used = provider
 
                 return {
@@ -216,6 +248,11 @@ async def execute_model_gateway(
                     "response": response.content,
                     "response_metadata": getattr(response, "response_metadata", {})
                 }
+            except TimeoutError:
+                # Queue congestion: Provider queue didn't open a slot in 2s
+                last_error = f"Concurrency queue timeout (> {SEMAPHORE_QUEUE_TIMEOUT}s wait) for '{provider}'"
+                print(f"⚠️ Provider '{provider}' queue congested. Tripping failover to next provider...")
+                break  # Skip remaining retries on this provider, immediately try next fallback!
             except Exception as e:
                 last_error = e
                 if attempt < retry_attempts:
