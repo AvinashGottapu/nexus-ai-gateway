@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, List
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 from langchain_groq import ChatGroq
+from langchain_core.messages import BaseMessage
 
 # Sibling modules inside the unified orchestrator folder:
 from orchestrator.hitl import create_human_review_ticket
@@ -90,7 +91,8 @@ async def orchestrate_request(
     prompt: str,
     requested_model: Optional[str] = "auto",
     inline_context: Optional[str] = None,
-    max_tokens: int = 1024
+    max_tokens: int = 1024,
+    chat_history: Optional[List[BaseMessage]] = None
 ) -> Dict[str, Any]:
     """
     04 Router + Orchestrator:
@@ -169,7 +171,8 @@ async def orchestrate_request(
         prompt=execution_prompt,
         requested_model=requested_model,
         max_tokens=max_tokens,
-        retry_attempts=1
+        retry_attempts=1,
+        chat_history=chat_history
     )
 
     return {

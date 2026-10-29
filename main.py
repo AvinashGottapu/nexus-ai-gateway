@@ -17,11 +17,20 @@ from gateway.identity import (
     deduct_usage_cost
 )
 
-# 01 Input Guardrails (Microsoft Presidio PII Masking & Meta Llama Guard 3)
+# 01 Input & Output Guardrails (Microsoft Presidio PII Masking, Meta Llama Guard 3 & Grounding)
 from guardrails.input_guard import apply_input_guardrails
+from guardrails.output_guard import apply_output_guardrails
 
 # 03 Semantic Cache (Redis Cosine Similarity Engine)
 from cache.semantic_cache import check_semantic_cache, save_to_semantic_cache
+
+# Layer C: Session Store (Context-Aware Multi-Turn Chat Memory with TTL)
+from gateway.session_store import (
+    generate_session_id,
+    get_session_langchain_messages,
+    append_session_message,
+    clear_session
+)
 
 # Orchestrator & Layer B (Router 04, Model Gateway 07, HITL 08, RAG 05)
 from orchestrator.router import orchestrate_request
@@ -43,6 +52,7 @@ class PromptRequest(BaseModel):
     prompt: str
     provider: Optional[str] = "groq"  # "groq", "openai", "gemini"
     context: Optional[str] = None  # Optional inline lines of information (stored 2 hours)
+    session_id: Optional[str] = None  # Layer C: Per-user multi-turn conversation session ID
 
 class IngestKnowledgeRequest(BaseModel):
     text: str
@@ -184,17 +194,37 @@ async def chat(
     # 01 Input Guardrails: PII Masking (Presidio) & Content Safety Check (Meta Llama Guard 3)
     safe_prompt = await apply_input_guardrails(req.prompt)
 
+    # Layer C: Session Store (Per-user conversation • TTL)
+    session_id = req.session_id or generate_session_id()
+    chat_history = get_session_langchain_messages(session_id)
+
     # 03 Semantic Cache: Check for >= 90% semantic match in Redis
     cached_result, prompt_vector = await check_semantic_cache(safe_prompt)
     if cached_result:
+        # Diagram rule: "HIT - still validate" before streaming answer
+        guard_output = await apply_output_guardrails(
+            user_prompt=req.prompt,
+            draft_answer=cached_result["response"],
+            retrieved_context=req.context
+        )
+
+        # Layer C: Session Store - Append cached turn to memory
+        append_session_message(session_id, "user", req.prompt)
+        append_session_message(session_id, "assistant", guard_output["sanitized_response"])
+
         # ⚡ CACHE HIT: Instant ~10ms return, $0.00 cost, skip LLM entirely!
         return {
+            "session_id": session_id,
             "provider": cached_result["provider"],
-            "response": cached_result["response"],
+            "response": guard_output["sanitized_response"],
             "cache": {
                 "hit": True,
                 "similarity_score": cached_result["similarity_score"],
                 "cached_prompt": cached_result["cached_prompt"]
+            },
+            "guardrails": {
+                "output_passed": guard_output["passed"],
+                "rejection_type": guard_output.get("rejection_type")
             },
             "billing": {
                 "cost_usd": 0.0,
@@ -208,12 +238,14 @@ async def chat(
     orch_result = await orchestrate_request(
         prompt=safe_prompt, 
         requested_model=req.provider,
-        inline_context=req.context
+        inline_context=req.context,
+        chat_history=chat_history
     )  # ainvoke => async invoke..
 
     # 08 Human in the Loop: If high-risk, return review ticket immediately!
     if orch_result.get("status") == "pending_human_approval":
         return {
+            "session_id": session_id,
             "status": "pending_human_approval",
             "intent": orch_result["intent"],
             "intent_confidence": orch_result.get("intent_confidence", 1.0),
@@ -231,8 +263,21 @@ async def chat(
     provider_used = orch_result["provider_used"]
     response_metadata = orch_result.get("response_metadata", {})
 
-    # 03 Semantic Cache: Store (prompt, vector, answer) in Redis for future hits
-    await save_to_semantic_cache(safe_prompt, prompt_vector, answer_text, provider_used)
+    # 01 Output Guardrails: Safety • Privacy (PII & Key Redaction) • Grounding (Hallucination Judge)
+    output_guard = await apply_output_guardrails(
+        user_prompt=req.prompt,
+        draft_answer=answer_text,
+        retrieved_context=req.context
+    )
+    final_answer = output_guard["sanitized_response"]
+
+    # 03 Semantic Cache: Diagram rule: "Write only after output validation"
+    if output_guard["passed"]:
+        await save_to_semantic_cache(safe_prompt, prompt_vector, final_answer, provider_used)
+
+    # Layer C: Session Store - Append conversation turns to Redis with 2-hour sliding window TTL
+    append_session_message(session_id, "user", req.prompt)
+    append_session_message(session_id, "assistant", final_answer)
 
     # 3. Dynamic Cost Calculation based on model-specific pricing catalog
     # (Default nominal cost $0.0001 or computed per provider rates)
@@ -247,16 +292,31 @@ async def chat(
     remaining_balance = deduct_usage_cost(client_info["key_hash"], cost)
 
     return {
+        "session_id": session_id,
         "provider": provider_used,
         "intent": orch_result["intent"],
         "intent_confidence": orch_result.get("intent_confidence", 1.0),
         "intent_reasoning": orch_result.get("intent_reasoning", ""),
         "sources_used": orch_result.get("sources_used", []),
         "failover_triggered": orch_result["failover_triggered"],
-        "response": answer_text,
+        "response": final_answer,
+        "guardrails": {
+            "output_passed": output_guard["passed"],
+            "rejection_type": output_guard.get("rejection_type"),
+            "hazard_code": output_guard.get("hazard_code")
+        },
         "token_usage": token_usage,
         "billing": {
             "cost_usd": cost,
             "remaining_balance_usd": remaining_balance
         }
     }
+
+
+@app.post("/v1/chat/clear-session")
+def reset_chat_session(session_id: str):
+    """
+    Layer C: Clears the conversation session memory in Redis.
+    """
+    success = clear_session(session_id)
+    return {"session_id": session_id, "cleared": success}

@@ -3,6 +3,7 @@ import re
 import asyncio
 from typing import Dict, Any, Optional, List
 from fastapi import HTTPException
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -176,7 +177,8 @@ async def execute_model_gateway(
     prompt: str,
     requested_model: Optional[str] = "auto",
     max_tokens: int = 1024,
-    retry_attempts: int = 1
+    retry_attempts: int = 1,
+    chat_history: Optional[List[BaseMessage]] = None
 ) -> Dict[str, Any]:
     """
     07 Model Gateway:
@@ -184,6 +186,7 @@ async def execute_model_gateway(
     - Enforces timeouts (10s)
     - Automatic retries with jitter
     - Seamless fallback cascade: Primary -> Fallback 1 -> Fallback 2
+    - Context-aware multi-turn conversations (supports chat_history from Session Store)
     """
     primary_provider = resolve_model(requested_model, prompt)
 
@@ -195,12 +198,15 @@ async def execute_model_gateway(
     last_error = None
     provider_used = primary_provider
 
+    # Prepare input: Prepend past turns if conversation history exists
+    invocation_input = list(chat_history) + [HumanMessage(content=prompt)] if chat_history else prompt
+
     for provider in provider_order:
         # Try primary/fallback with retry loop
         for attempt in range(retry_attempts + 1):
             try:
                 model = create_model_instance(provider, max_tokens=max_tokens, timeout=10.0)
-                response = await model.ainvoke(prompt)
+                response = await model.ainvoke(invocation_input)
                 provider_used = provider
 
                 return {
