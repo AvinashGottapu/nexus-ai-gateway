@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import asyncio
 from typing import Dict, Any, Optional, List
@@ -7,6 +8,18 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
+
+# Safe stdout for Windows console output
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # Layer D: Reliability & Scale (Stateful Circuit Breaker)
 from orchestrator.circuit_breaker import circuit_breaker
@@ -42,6 +55,8 @@ MODEL_CATALOG = {
     "speed": "groq",
     "groq": "groq",
     "llama": "groq",
+    "openai/gpt-oss-120b": "groq",
+    "gpt-oss-120b": "groq",
     "llama-3.3-70b-versatile": "groq",
     "llama-3.1-8b-instant": "groq",
 

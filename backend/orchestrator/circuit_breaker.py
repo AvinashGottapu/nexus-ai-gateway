@@ -1,7 +1,20 @@
+import sys
 import time
 from enum import Enum
 from typing import Dict, Any
 from dataclasses import dataclass
+
+# Safe stdout for Windows console output
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # =====================================================================
 # LAYER D: RELIABILITY + SCALE - STATEFUL CIRCUIT BREAKER

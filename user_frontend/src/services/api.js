@@ -50,7 +50,14 @@ export async function postRevokeApiKey(keyId) {
 export async function runLiveInference({ prompt, apiKey, model = 'groq' }) {
   const startTime = performance.now();
   try {
-    const provider = model.includes('gemini') ? 'gemini' : model.includes('openai') ? 'openai' : 'groq';
+    let provider = 'groq';
+    if (model.includes('gpt-oss') || model.includes('groq') || model.includes('llama')) {
+      provider = 'groq';
+    } else if (model.includes('gemini')) {
+      provider = 'gemini';
+    } else if (model.includes('gpt-4') || model === 'openai') {
+      provider = 'openai';
+    }
 
     const res = await fetch(`${BACKEND_URL}/chat`, {
       method: 'POST',
