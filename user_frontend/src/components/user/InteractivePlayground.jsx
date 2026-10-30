@@ -69,46 +69,20 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
       return;
     }
 
-    // Dynamic contextual response for offline simulation mode
-    const lowerPrompt = prompt.toLowerCase();
-    let content = "";
-    let isCacheHit = false;
-    let tokens = 420;
-    let cost = 0.000085;
-
-    if (lowerPrompt.includes('return policy') || lowerPrompt.includes('footwear')) {
-      content = "Under our 30-day return policy, footwear may be returned within 30 calendar days from the delivery date, provided it is unworn, in its original packaging with all tags attached, and accompanied by the original purchase receipt. Returns can be initiated online for a prepaid shipping label or processed in-store.";
-      isCacheHit = true;
-      tokens = 380;
-      cost = 0.0;
-    } else if (lowerPrompt.includes('celebrity') || lowerPrompt.includes('india') || lowerPrompt.includes('actor') || lowerPrompt.includes('cricket')) {
-      content = "In India, top cultural celebrities span cinema and sports. In Bollywood, Shah Rukh Khan ('King Khan') and Amitabh Bachchan remain celebrated cultural icons alongside Salman Khan, Aamir Khan, and Deepika Padukone. In sports, cricket legends Virat Kohli, MS Dhoni, and Sachin Tendulkar are among the most revered figures nationwide.";
-      tokens = 290;
-      cost = 0.000058;
-    } else if (lowerPrompt.includes('python') || lowerPrompt.includes('code') || lowerPrompt.includes('redis') || lowerPrompt.includes('api')) {
-      content = `Here is the solution generated for ${selectedModel}:\n\n` +
-        "```python\nimport asyncio\nimport redis.asyncio as aioredis\n\nasync def get_redis_pool():\n    return await aioredis.from_url('redis://localhost:6379', socket_timeout=5.0)\n```\n\nThis setup provides resilient connection pooling with graceful timeout protection.";
-      tokens = 620;
-      cost = 0.000124;
-    } else {
-      content = `Response from ${selectedModel}:\n\n"${prompt}"\n\nYour query has been analyzed through the Gateway pipeline. Connect the live FastAPI backend to get real-time generative responses directly from upstream providers.`;
-      tokens = 350;
-      cost = 0.00007;
-    }
-
-    const mockResponse = {
-      content,
+    // If live backend call failed, report the real connectivity/upstream error cleanly
+    const errorResponse = {
+      content: `⚠️ Gateway Request Failed: ${live.error || 'Connection refused'}\n\nCould not reach the FastAPI gateway at http://localhost:8000.\n\nTo get real-time answers directly from Groq/LLM, ensure your backend is running:\n  cd backend\n  ..\\.venv\\Scripts\\python.exe -m uvicorn main:app --port 8000`,
       model: selectedModel,
-      latencyMs: isCacheHit ? 38 : 465,
-      isCacheHit,
-      tokens,
-      costUsd: cost,
-      piiRedacted: prompt.includes('@'),
+      latencyMs: live.latencyMs || 0,
+      isCacheHit: false,
+      tokens: 0,
+      costUsd: 0.0,
+      piiRedacted: false,
       isLive: false,
       backendError: live.error || 'Backend not reachable on http://localhost:8000'
     };
 
-    setResult(mockResponse);
+    setResult(errorResponse);
 
     if (onRequestGenerated) {
       onRequestGenerated({
