@@ -18,10 +18,24 @@ SECRET_PATTERNS = [
 ]
 
 
+# Sensitive PII entities to protect (Never redact public places, dates, or public figures)
+SENSITIVE_PII_ENTITIES = [
+    "EMAIL_ADDRESS",
+    "PHONE_NUMBER",
+    "CREDIT_CARD",
+    "US_SSN",
+    "IBAN_CODE",
+    "IP_ADDRESS",
+    "US_PASSPORT",
+    "US_BANK_NUMBER"
+]
+
+
 def redact_secrets_and_pii(text: str) -> str:
     """
     1. Redacts any accidental internal API key leaks using regex.
     2. Redacts customer PII (credit cards, SSNs, phone numbers, emails) using Microsoft Presidio.
+       (Excludes public locations, dates, and historical/celebrity names so knowledge answers remain natural).
     """
     # 1. Mask API key secrets
     clean_text = text
@@ -30,7 +44,11 @@ def redact_secrets_and_pii(text: str) -> str:
 
     # 2. Mask customer PII using Microsoft Presidio singleton
     analyzer, anonymizer = get_presidio()
-    analysis = analyzer.analyze(text=clean_text, language="en")
+    analysis = analyzer.analyze(
+        text=clean_text,
+        language="en",
+        entities=SENSITIVE_PII_ENTITIES
+    )
     anonymized = anonymizer.anonymize(text=clean_text, analyzer_results=analysis)
     return anonymized.text
 

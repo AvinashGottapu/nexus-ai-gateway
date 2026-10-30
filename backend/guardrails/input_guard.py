@@ -38,22 +38,36 @@ def get_presidio():
     return _analyzer, _anonymizer
 
 
+# Targeted sensitive PII to protect (emails, phone numbers, credit cards, SSN, credentials)
+SENSITIVE_PII_ENTITIES = [
+    "EMAIL_ADDRESS",
+    "PHONE_NUMBER",
+    "CREDIT_CARD",
+    "US_SSN",
+    "IBAN_CODE",
+    "IP_ADDRESS",
+    "US_PASSPORT",
+    "US_BANK_NUMBER"
+]
+
+
 def mask_pii_presidio(text: str) -> str:
     """
-    Uses Microsoft Presidio to detect & anonymize:
-    - Real Names (PERSON)
+    Uses Microsoft Presidio to detect & anonymize sensitive customer PII:
     - Credit Cards (CREDIT_CARD)
     - Phone Numbers (PHONE_NUMBER)
     - Emails (EMAIL_ADDRESS)
     - SSNs, Passports, IP addresses
+    (Preserves public country names, dates, and public knowledge entities).
     """
     analyzer, anonymizer = get_presidio()
 
-    # 1. Analyze text for sensitive PII entities
-    results = analyzer.analyze(text=text, language="en")
-
-    # The Analyzer (The Detective) → Finds where the secrets are hiding.
-    # The Anonymizer (The Redactor) → Uses a black marker to cover them up.
+    # 1. Analyze text for sensitive PII entities only
+    results = analyzer.analyze(
+        text=text,
+        language="en",
+        entities=SENSITIVE_PII_ENTITIES
+    )
 
     # 2. Anonymize/redact detected entities in-place
     anonymized = anonymizer.anonymize(text=text, analyzer_results=results)

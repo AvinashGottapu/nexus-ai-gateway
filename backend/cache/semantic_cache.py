@@ -49,13 +49,15 @@ async def get_embedding(text: str) -> List[float]:
         try:
             embedder = OpenAIEmbeddings(
                 model="text-embedding-3-small",
-                api_key=openai_key
+                api_key=openai_key,
+                timeout=2.0,
+                max_retries=0
             )
             return await embedder.aembed_query(text)
         except Exception as e:
-            print(f"⚠️ OpenAI embedding error ({e})")
+            pass
 
-    # If no key available, return empty list
+    # If no key available or failed, return empty list
     return []
 
 
