@@ -25,6 +25,12 @@ gateway/gateway.db
 gateway/gateway.db.*
 backups/
 
+# Node / Frontend
+node_modules/
+*/node_modules/
+frontend/node_modules/
+.npm/
+
 # OS / Editor files
 .DS_Store
 Thumbs.db

@@ -104,8 +104,9 @@ def get_model(provider: str):
 
 # --- GATEWAY & WALLET MANAGEMENT ENDPOINTS ---
 
-@app.get("/")
-def root():
+@app.get("/health")
+@app.get("/api/status")
+def health_check():
     return {
         "service": "AI Inference Platform Gateway",
         "status": "online",
@@ -418,3 +419,21 @@ def view_feedback_telemetry():
     Layer D: Evaluation - Returns overall user satisfaction percentage and recent feedback records.
     """
     return get_feedback_summary()
+
+
+# --- SERVE FRONTEND SPA DASHBOARD (USER & ADMIN PORTALS) ---
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+if os.path.exists(FRONTEND_DIST):
+    assets_dir = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/")
+    @app.get("/app")
+    @app.get("/admin")
+    async def serve_portal():
+        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+
