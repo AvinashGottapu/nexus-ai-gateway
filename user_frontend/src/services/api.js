@@ -112,3 +112,39 @@ export async function getLiveTelemetry() {
     return { success: false, error: err.message };
   }
 }
+
+// --- PAYMENTS & STRIPE API ---
+
+export async function getLivePayments(userEmail) {
+  try {
+    const url = userEmail ? `${BACKEND_URL}/v1/payments?user_email=${encodeURIComponent(userEmail)}` : `${BACKEND_URL}/v1/payments`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function postStripeCheckout({ userEmail, amountUsd, outcome = 'succeeded', failureReason }) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/payments/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_email: userEmail,
+        amount_usd: amountUsd,
+        payment_method: 'Stripe (Visa •••• 4242)',
+        outcome: outcome,
+        failure_reason: failureReason
+      }),
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}

@@ -11,7 +11,8 @@ import {
   Sun,
   Moon,
   ChevronDown,
-  AlertTriangle
+  AlertTriangle,
+  CreditCard
 } from 'lucide-react';
 import { Badge } from './components/ui/Badge';
 
@@ -22,6 +23,7 @@ import { ObservabilityMetrics } from './components/admin/ObservabilityMetrics';
 import { HITLQueue } from './components/admin/HITLQueue';
 import { AuditLogs } from './components/admin/AuditLogs';
 import { SystemSettings } from './components/admin/SystemSettings';
+import { PaymentsManager } from './components/admin/PaymentsManager';
 
 // Mock Data
 import {
@@ -96,6 +98,7 @@ export function App() {
 
   const navItems = [
     { id: 'overview', label: 'System Overview', icon: LayoutDashboard },
+    { id: 'payments', label: 'All Payments & Ledger', icon: CreditCard },
     { id: 'users', label: 'User Directory', icon: Users },
     { id: 'observability', label: 'Gateway Observability', icon: Activity },
     {
@@ -242,6 +245,9 @@ export function App() {
               setCircuitBreakers={setCircuitBreakers}
               setActiveTab={setActiveTab}
             />
+          )}
+          {activeTab === 'payments' && (
+            <PaymentsManager />
           )}
           {activeTab === 'users' && (
             <UserTable

@@ -16,7 +16,11 @@ from gateway.identity import (
     recharge_key,
     deduct_usage_cost,
     list_api_keys,
-    revoke_api_key
+    revoke_api_key,
+    process_stripe_payment,
+    list_all_payments,
+    list_user_payments,
+    get_payments_summary
 )
 from orchestrator.circuit_breaker import circuit_breaker
 
@@ -192,6 +196,55 @@ async def check_balance(client_info: Dict[str, Any] = Depends(verify_api_gateway
         "total_spent_usd": client_info["total_spent_usd"],
         "rpm_limit": client_info["rpm_limit"]
     }
+
+
+# --- STRIPE PAYMENTS & BILLING ENDPOINTS ---
+
+class CheckoutRequest(BaseModel):
+    user_email: str = "sarah.chen@techcorp.com"
+    amount_usd: float = 25.0
+    key_hash: Optional[str] = None
+    payment_method: Optional[str] = "Stripe (Visa •••• 4242)"
+    outcome: Optional[str] = "succeeded"  # "succeeded" or "failed"
+    failure_reason: Optional[str] = None
+
+@app.post("/v1/payments/checkout")
+def stripe_checkout(req: CheckoutRequest):
+    """
+    Simulated & real Stripe payment processor:
+    - If outcome == 'succeeded': Immediately credits user's SQLite API key wallet.
+    - If outcome == 'failed': Records failed transaction without crediting.
+    """
+    failure_msg = req.failure_reason if req.outcome == "failed" else None
+    if req.outcome == "failed" and not failure_msg:
+        failure_msg = "Card declined: Insufficient funds or card restriction."
+
+    return process_stripe_payment(
+        user_email=req.user_email,
+        amount_usd=req.amount_usd,
+        status=req.outcome,
+        key_hash=req.key_hash,
+        payment_method=req.payment_method,
+        failure_reason=failure_msg
+    )
+
+
+@app.get("/v1/payments")
+def get_all_or_user_payments(user_email: Optional[str] = None):
+    """
+    Returns payment records from SQLite.
+    - For User: Pass ?user_email=sarah.chen@techcorp.com
+    - For Admin: Omit user_email to get all platform payments.
+    """
+    return list_user_payments(user_email)
+
+
+@app.get("/v1/payments/summary")
+def get_payments_kpi():
+    """
+    Returns revenue, succeeded payment count, and failed payment count for Admin.
+    """
+    return get_payments_summary()
 
 
 # --- 08 HUMAN IN THE LOOP (REVIEW & AUDIT ENDPOINTS) ---

@@ -48,3 +48,27 @@ export async function postReviewHitlTicket(ticketId, decision, reviewerName = "L
     return { success: false, error: err.message };
   }
 }
+
+// --- ADMIN PAYMENTS & REVENUE API ---
+
+export async function getAllPayments() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/payments`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function getPaymentsSummary() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/payments/summary`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
