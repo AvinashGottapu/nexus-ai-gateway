@@ -23,12 +23,18 @@ venv/
 *.sqlite3
 gateway/gateway.db
 gateway/gateway.db.*
+backend/gateway/gateway.db
+backend/gateway/gateway.db.*
 backups/
+backend/backups/
 
 # Node / Frontend
 node_modules/
 */node_modules/
-frontend/node_modules/
+user_frontend/node_modules/
+admin_frontend/node_modules/
+user_frontend/dist/
+admin_frontend/dist/
 .npm/
 
 # OS / Editor files

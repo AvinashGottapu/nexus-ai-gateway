@@ -1,115 +1,111 @@
-# ⚡ Nexus AI Gateway
+# ⚡ Nexus AI Gateway & Inference Platform
 
-> **Production-grade LLM Gateway & Smart Router featuring Redis sliding-window rate limiting, Microsoft Presidio PII masking, Meta Llama Guard 3, semantic vector caching, and automatic provider failover.**
+> **Enterprise AI Gateway, Smart Router & Observability Platform featuring 3 dedicated tiers:**
+> - `backend/`: Python FastAPI Gateway, Upstash Redis REST, Presidio PII Masking, Prompt Guard, Semantic Cache, and Multi-Provider Fallback.
+> - `user_frontend/`: Dedicated Developer Workspace (React, Vite, Tailwind CSS) for API keys, usage, and prompt testing.
+> - `admin_frontend/`: Dedicated Operations Console (React, Vite, Tailwind CSS) for cluster health, circuit breakers, HITL approval queue, and audit logs.
 
 ---
 
-## 🏛️ The Architecture Pipeline
+## 📁 Repository Structure
+
+```
+nexus-ai-gateway/
+├── backend/                  # 🚀 FastAPI Inference Engine & Gateway
+│   ├── gateway/              # Identity, SHA-256 Auth, Upstash Redis Rate Limiter, Session Store
+│   ├── guardrails/           # Presidio PII Masking & Meta Prompt Guard
+│   ├── cache/                # Redis Cosine Similarity Semantic Cache (Gemini Embeddings)
+│   ├── orchestrator/         # Intent Router, Model Gateway, Circuit Breakers, HITL Queue, RAG
+│   ├── observability/        # Distributed Tracing, P95/P99 latency, Token metrics
+│   ├── ops/                  # Non-blocking SQLite automated backups & 1-click restore
+│   ├── eval/                 # Feedback telemetry & 7-layer Golden Set test suite
+│   ├── tests/                # Concurrency stress & load testing harnesses
+│   ├── main.py               # Application entry point & OpenAPI REST routes
+│   └── requirements.txt      # Python dependencies
+│
+├── user_frontend/            # 👤 Developer Workspace (React + JavaScript)
+│   ├── src/components/user/  # User Dashboard, Key Manager, Request History, Test Playground
+│   ├── src/App.jsx           # Clean, distraction-free user application shell
+│   └── vite.config.js        # Configured for Port 3000
+│
+└── admin_frontend/           # 👨‍💻 Operations & Admin Console (React + JavaScript)
+    ├── src/components/admin/ # Executive Ops, User Directory, HITL Review Queue, Audit Logs
+    ├── src/App.jsx           # Authoritative sentinel & observability operations shell
+    └── vite.config.js        # Configured for Port 3001
+```
+
+---
+
+## 🏛️ Architecture Pipeline
 
 ```mermaid
 flowchart TD
-    Client["Developer Client App\n(Web, Mobile, Agent, Python)"] --> Gateway["02 API Gateway & Identity\n• SHA-256 Key Hashing\n• Prepaid Credit Wallet ($5.00 starter)\n• Redis Sliding-Window Rate Limiter (ZSET)"]
-    Gateway --> Guardrails["01 Input Guardrails\n• Microsoft Presidio (PII Masking)\n• Meta Llama Guard 3 (Hacking, Sexual, Morphing, Jailbreaks)"]
-    Guardrails --> SemCache{"03 Semantic Cache\n(Redis Cosine Similarity >= 0.90)"}
+    Client["Client / User / Developer"] --> Gateway["02 API Gateway & Identity\n• SHA-256 Key Hashing\n• Prepaid Credit Wallet ($5.00)\n• Upstash Redis HTTPS Rate Limiter"]
+    Gateway --> Guardrails["01 Input Guardrails\n• Microsoft Presidio (PII Masking)\n• Meta Prompt Guard 2 (86M)"]
+    Guardrails --> SemCache{"03 Semantic Cache\n(Redis Cosine Similarity >= 0.92)"}
     
-    SemCache -- "CACHE HIT (10ms / $0.00)" --> Output["Answer Delivered (LLM Bypassed!)"]
+    SemCache -- "CACHE HIT (38ms / $0.00)" --> Output["Answer Delivered (LLM Bypassed!)"]
     
-    SemCache -- "CACHE MISS" --> Router["04 Router + Orchestrator\n• Intent Classification\n• Dynamic Model Routing (auto, fast, cheap)"]
+    SemCache -- "CACHE MISS" --> Router["04 Router + Orchestrator\n• Groq openai/gpt-oss-120b Classifier\n• Dynamic Model Routing"]
     
-    Router --> ModelGateway["07 Model Gateway & Fallback\n• Circuit Breaker Failover\nPrimary (Groq) ➔ Backup 1 (Gemini) ➔ Backup 2 (OpenAI)"]
+    Router --> ModelGateway["07 Model Gateway & Cascading Fallback\n• Circuit Breaker Failover\nPrimary (Groq) ➔ Backup 1 (Gemini) ➔ Backup 2 (OpenAI)"]
     
-    ModelGateway --> WriteCache["Write (prompt, vector, answer)\nto Redis with 24h TTL"]
+    ModelGateway --> WriteCache["Write (prompt, vector, answer)\nto Upstash Redis with TTL"]
     WriteCache --> Deduct["Dynamic Token Cost Deduction from Wallet"]
     Deduct --> Output
 ```
 
 ---
 
-## ✨ Core Features
+## 🚀 Quickstart Guide
 
-### 1. 02 API Gateway & Identity
-- **Cryptographic Key Hashing (SHA-256)**: Plaintext developer keys (`sk-live-...`) are never stored in the database.
-- **Prepaid Credit Wallet**: Developers receive **$5.00** in free starter credits. Real-time balance check rejects exhausted keys with `402 Payment Required: Insufficient Quota`.
-- **Distributed Redis Sliding-Window Rate Limiter**: High-concurrency atomic pipeline using Redis Sorted Sets (`ZSET`).
+### 1. Backend Service (`backend/`)
+```bash
+cd backend
 
-### 2. 01 Input Guardrails
-- **Microsoft Presidio**: Context-aware named-entity recognition automatically redacts Real Names (`<PERSON>`), Credit Cards (`<CREDIT_CARD>`), Phone Numbers (`<PHONE_NUMBER>`), Emails (`<EMAIL_ADDRESS>`), and SSNs.
-- **Meta Llama Guard 3 (on Groq)**: Sub-100ms classifier trained on the 14 official MLCommons hazard categories (Cyberattacks/Hacking `S13`, Sexual Content `S12`, Defamation/Morphing `S5`, Violent Crimes `S1`, and adversarial prompt injections).
+# Create & activate Python virtual environment
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Mac/Linux:
+# source .venv/bin/activate
 
-### 3. 03 Semantic Cache (Redis)
-- Uses mathematical **Cosine Similarity** ($\ge 0.90$) to detect semantically identical questions.
-- **Cache Hit**: Instant response in **$\sim 10\text{ms}$** at **\$0.00 cost** (upstream LLM is completely bypassed).
-- **Cache Miss**: LLM responds and automatically caches `(prompt, vector, answer)` in Redis with a 24-hour expiration timer (TTL).
+# Install dependencies
+pip install -r requirements.txt
 
-### 4. 04 Router + Orchestrator & Model Gateway
-- **Smart Model Aliases**:
-  - `model="auto"`: Dynamically routes simple questions to low-cost models and complex reasoning to flagship models.
-  - `model="fast"`: Routes to Groq Llama 3.3 for sub-second speed.
-  - `model="cheap"`: Routes to Gemini 1.5 Flash.
-- **Automatic Fallback Circuit Breaker**: If the primary provider hits a `429 Rate Limit` or `503 Outage`, the gateway automatically retries on backup providers without failing the user's call.
+# Run the API Gateway
+uvicorn main:app --reload --port 8000
+```
+- API Base URL: `http://localhost:8000`
+- Interactive OpenAPI Docs: `http://localhost:8000/docs`
+- Gateway Health Endpoint: `http://localhost:8000/health`
 
 ---
 
-## 🚀 Quickstart
-
-### 1. Clone & Setup Environment
+### 2. User Portal (`user_frontend/`)
 ```bash
-git clone https://github.com/AvinashGottapu/nexus-ai-gateway.git
-cd nexus-ai-gateway
+cd user_frontend
 
-# Create virtual environment
-uv venv
-```
+# Install dependencies (if not already installed)
+npm install
 
-### 2. Install Dependencies
-```bash
-uv pip install -r requirements.txt
+# Start User Workspace
+npm run dev
 ```
-
-### 3. Configure `.env`
-Copy `.env.example` to `.env` and fill in your keys:
-```bash
-cp .env.example .env
-```
-```env
-GROQ_API_KEY=gsk_...
-OPENAI_API_KEY=sk-...
-GOOGLE_API_KEY=AIza...
-REDIS_URL=rediss://default:...@your-redis-host:6379
-```
-
-### 4. Run the Server
-```bash
-uv run uvicorn main:app --reload --port 8000
-```
-Open interactive Swagger docs at: `http://localhost:8000/docs`
+- Accessible at: **`http://localhost:3000`**
+- Features: API Key generation, token wallet balance, interactive prompt playground, request history inspector, and PII masking toggles.
 
 ---
 
-## 📡 API Reference
-
-### 1. Generate Platform API Key
+### 3. Admin Operations Console (`admin_frontend/`)
 ```bash
-curl -X POST http://127.0.0.1:8000/v1/keys/create \
-  -H "Content-Type: application/json" \
-  -d '{"name": "My App", "starter_credits": 5.0, "rpm_limit": 30}'
+cd admin_frontend
+
+# Install dependencies (if not already installed)
+npm install
+
+# Start Admin Console
+npm run dev
 ```
-
-### 2. Check Wallet Balance
-```bash
-curl -X GET http://127.0.0.1:8000/v1/keys/balance \
-  -H "Authorization: Bearer sk-live-YOUR_KEY"
-```
-
-### 3. Protected Chat Inference
-```bash
-curl -X POST http://127.0.0.1:8000/chat \
-  -H "Authorization: Bearer sk-live-YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "What is Docker?", "provider": "groq"}'
-```
-
----
-
-## 📄 License
-MIT License. Built for production-grade AI infrastructure.
+- Accessible at: **`http://localhost:3001`**
+- Features: Circuit breaker health monitors (`Groq`, `Gemini`, `OpenAI`), User management directory, P95/P99 latency observability, Human-in-the-Loop (HITL) approval queue, and security audit log console.

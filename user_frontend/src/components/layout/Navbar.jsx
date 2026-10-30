@@ -4,24 +4,21 @@ import {
   ChevronDown,
   Sun,
   Moon,
-  ShieldCheck,
-  User,
-  Shield,
-  Check,
+  ExternalLink,
   SlidersHorizontal,
-  LogOut,
-  ExternalLink
+  Check,
+  ShieldCheck,
+  Shield
 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 
-export const Navbar = ({
-  role,
-  setRole,
+export const UserNavbar = ({
   isDark,
   toggleTheme,
   currentOrg,
   setCurrentOrg,
-  currentUser
+  currentUser,
+  onNavigateToAdmin
 }) => {
   const [isOrgDropdownOpen, setIsOrgDropdownOpen] = useState(false);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
@@ -34,7 +31,7 @@ export const Navbar = ({
 
   return (
     <header className="sticky top-0 z-40 w-full h-14 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800/80 px-4 flex items-center justify-between select-none">
-      {/* Left: Brand & Project Selector */}
+      {/* Brand & Active Workspace */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-indigo-600 dark:bg-indigo-500 flex items-center justify-center text-white shadow-xs">
@@ -44,15 +41,15 @@ export const Navbar = ({
             <span className="font-bold text-sm tracking-tight text-zinc-900 dark:text-zinc-50">
               NEXUS
             </span>
-            <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded-sm bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
-              Gateway
+            <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded-sm bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+              Developer Portal
             </span>
           </div>
         </div>
 
         <div className="hidden md:block h-4 w-[1px] bg-zinc-200 dark:bg-zinc-800" />
 
-        {/* Project Selector */}
+        {/* Workspace Selector */}
         <div className="relative">
           <button
             onClick={() => setIsOrgDropdownOpen(!isOrgDropdownOpen)}
@@ -90,46 +87,28 @@ export const Navbar = ({
         </div>
       </div>
 
-      {/* Right Controls: Role Switcher, System Status, Theme Toggle, Profile */}
+      {/* Right Controls */}
       <div className="flex items-center gap-2.5">
-        {/* Operational Status */}
-        <div className="hidden sm:flex items-center">
-          <Badge variant="success" dot={true} size="sm">
-            All Systems Operational
-          </Badge>
-        </div>
+        <Badge variant="success" dot={true} size="sm" className="hidden sm:inline-flex">
+          Gateway Operational
+        </Badge>
 
-        {/* Role Switcher Pill */}
-        <div className="flex items-center p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+        {/* Quick link to Admin Portal for authorized staff */}
+        {onNavigateToAdmin && (
           <button
-            onClick={() => setRole('user')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-              role === 'user'
-                ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs border border-zinc-200/50 dark:border-zinc-700/60'
-                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-            }`}
+            onClick={onNavigateToAdmin}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors"
           >
-            <User className="w-3.5 h-3.5" />
-            <span>User View</span>
+            <Shield className="w-3.5 h-3.5 text-amber-500" />
+            <span>Admin Console</span>
           </button>
-          <button
-            onClick={() => setRole('admin')}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-              role === 'admin'
-                ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs border border-zinc-200/50 dark:border-zinc-700/60'
-                : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-            }`}
-          >
-            <Shield className="w-3.5 h-3.5" />
-            <span>Admin View</span>
-          </button>
-        </div>
+        )}
 
         {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
           aria-label="Toggle theme"
-          className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/80 transition-colors border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700/60"
+          className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/80 transition-colors"
         >
           {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
         </button>
@@ -159,18 +138,11 @@ export const Navbar = ({
                 </div>
                 <div className="mt-1">
                   <Badge variant="info" size="sm">
-                    {currentUser.plan} Plan
+                    {currentUser.plan} Tier
                   </Badge>
                 </div>
               </div>
               <div className="p-1">
-                <button
-                  onClick={() => setIsUserDropdownOpen(false)}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 rounded-md"
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-400" />
-                  Account Preferences
-                </button>
                 <a
                   href="https://github.com/AvinashGottapu/nexus-ai-gateway"
                   target="_blank"

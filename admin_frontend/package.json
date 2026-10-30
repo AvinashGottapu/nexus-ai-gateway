@@ -1,5 +1,5 @@
 {
-  "name": "nexus-gateway-ui",
+  "name": "nexus-admin-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
