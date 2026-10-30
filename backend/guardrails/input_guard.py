@@ -89,7 +89,8 @@ async def run_llama_guard(prompt: str) -> None:
         guard_model = ChatGroq(
             model=guard_model_name,
             api_key=api_key,
-            temperature=0.0
+            temperature=0.0,
+            timeout=4.0
         )
         response = await guard_model.ainvoke(prompt)
         output = response.content.strip()

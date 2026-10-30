@@ -71,7 +71,7 @@ export async function runLiveInference({ prompt, apiKey, model = 'groq' }) {
         prompt,
         provider
       }),
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(45000)
     });
 
     const elapsed = Math.round(performance.now() - startTime);

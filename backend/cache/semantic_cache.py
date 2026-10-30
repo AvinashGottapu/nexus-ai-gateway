@@ -105,11 +105,16 @@ async def check_semantic_cache(
         if not keys:
             return None, prompt_vector
 
+        # Batch fetch all cached items in ONE atomic network roundtrip
+        if hasattr(r, "mget"):
+            raw_items = await r.mget(*keys)
+        else:
+            raw_items = [await r.get(k) for k in keys]
+
         best_match = None
         highest_similarity = 0.0
 
-        for key in keys:
-            raw_data = await r.get(key)
+        for raw_data in raw_items:
             if not raw_data:
                 continue
 
