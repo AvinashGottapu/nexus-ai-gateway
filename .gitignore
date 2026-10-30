@@ -16,11 +16,14 @@ wheels/
 env/
 venv/
 
-# Databases
+# Databases & Backups
 *.db
+*.db.*
 *.sqlite
 *.sqlite3
 gateway/gateway.db
+gateway/gateway.db.*
+backups/
 
 # OS / Editor files
 .DS_Store
