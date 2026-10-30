@@ -106,12 +106,15 @@ async def append_session_message(
         key = _get_session_key(session_id)
         payload = json.dumps({"role": role, "content": content.strip()})
 
-        # Atomic Redis Pipeline: Push -> Trim -> Refresh TTL
+        # Pipeline: Push -> Trim -> Refresh TTL
         pipe = r.pipeline()
         pipe.rpush(key, payload)
         pipe.ltrim(key, -MAX_HISTORY_MESSAGES, -1)  # Keep only recent sliding window
         pipe.expire(key, ttl_seconds)                # Reset 2-hour TTL
-        await pipe.execute()
+        if hasattr(pipe, "exec"):
+            await pipe.exec()
+        else:
+            await pipe.execute()
     except Exception as e:
         print(f"⚠️ Session store write error ({e})")
 

@@ -151,7 +151,7 @@ def create_model_instance(provider: str, max_tokens: int = 1024, timeout: float 
     """
     if provider == "groq":
         return ChatGroq(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             api_key=os.getenv("GROQ_API_KEY"),
             max_tokens=max_tokens,
             timeout=timeout

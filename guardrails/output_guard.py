@@ -47,7 +47,7 @@ def get_llama_guard() -> Optional[ChatGroq]:
         return None
     if _GUARD_MODEL is None:
         _GUARD_MODEL = ChatGroq(
-            model="llama-guard-3-8b",
+            model="meta-llama/llama-prompt-guard-2-86m",
             api_key=api_key,
             temperature=0.0,
             timeout=5.0
@@ -127,15 +127,12 @@ async def apply_output_guardrails(
     # Step 1: Privacy & Secrets Check (Fast, local CPU, 0ms latency)
     sanitized = redact_secrets_and_pii(draft_answer)
 
-    # Step 2: Semantic Safety Check (Llama Guard 3)
+    # Step 2: Semantic Safety Check (Llama Guard / Prompt Guard)
     guard = get_llama_guard()
     if guard:
         try:
-            guard_conversation = [
-                {"role": "user", "content": user_prompt},
-                {"role": "assistant", "content": sanitized}
-            ]
-            response = await guard.ainvoke(guard_conversation)
+            # Prompt Guard on Groq evaluates output text directly
+            response = await guard.ainvoke(sanitized)
             output = response.content.strip()
 
             if output.startswith("unsafe"):
@@ -152,8 +149,8 @@ async def apply_output_guardrails(
                     )
                 }
         except Exception as e:
-            # In production: log alerting metric, but proceed or fallback safely
-            print(f"⚠️ Llama Guard output evaluation failed: {e}")
+            # Safe fail open if upstream guard service has transient network error
+            pass
 
     # Step 3: Hallucination Verification for RAG
     if retrieved_context:

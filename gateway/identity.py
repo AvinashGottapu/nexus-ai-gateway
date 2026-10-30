@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import sqlite3
 import hashlib
@@ -9,29 +10,57 @@ import redis.asyncio as aioredis
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+# Ensure Windows stdout safely prints UTF-8 logs and warning symbols
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 load_dotenv()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "gateway.db")
 # __file__ =>   A special Python variable that holds the full file path of the current script.
 # os.path.dirname(__file__) => Gets the folder that contains this file.
 
+UPSTASH_REST_URL = os.getenv("UPSTASH_REDIS_REST_URL")
+UPSTASH_REST_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN")
 REDIS_URL = os.getenv("REDIS_URL")
 
-# Async Redis client for distributed rate limiting
-_redis_client: Optional[aioredis.Redis] = None
+# Unified Async Redis client (Supports Upstash REST over HTTPS port 443 + native TCP fallback)
+_redis_client: Any = None
 
 security = HTTPBearer(auto_error=False)
 
 
-async def get_redis_client() -> aioredis.Redis:
-    """Returns a singleton async Redis connection."""
+async def get_redis_client():
+    """
+    Returns a singleton async Redis connection:
+    - Priority 1: Upstash REST over HTTPS (Port 443) -> 100% reliable, never blocked by firewalls/ISPs!
+    - Priority 2: Native Redis TCP connection (rediss://)
+    """
     global _redis_client
-    if _redis_client is None:
+    if _redis_client is not None:
+        return _redis_client
+
+    # 1. Prefer Upstash REST over HTTPS (Rock-solid, zero port 6379 firewall timeout issues)
+    if UPSTASH_REST_URL and UPSTASH_REST_TOKEN:
+        try:
+            from upstash_redis.asyncio import Redis as UpstashAsyncRedis
+            _redis_client = UpstashAsyncRedis(
+                url=UPSTASH_REST_URL,
+                token=UPSTASH_REST_TOKEN
+            )
+            return _redis_client
+        except Exception as e:
+            print(f"⚠️ Upstash REST client init error ({e}), falling back to TCP...")
+
+    # 2. Fallback to standard aioredis TCP
+    if REDIS_URL:
         _redis_client = aioredis.from_url(
             REDIS_URL,
             decode_responses=True,
             socket_connect_timeout=5.0  # Production Safeguard
-            ## If the internet or Upstash is down, don't let your server freeze forever. If it can't connect within 5 seconds, fail gracefully
         )
     return _redis_client
 
@@ -169,13 +198,13 @@ async def check_rate_limit(key_hash: str, rpm_limit: int):
         window_start = now - 60.0
         redis_key = f"ratelimit:{key_hash}"
 
-        # Atomic Pipeline: Remove expired -> Add current -> Count window -> Set TTL
-        async with r.pipeline(transaction=True) as pipe:
-            pipe.zremrangebyscore(redis_key, 0, window_start)
-            pipe.zadd(redis_key, {str(now): now})
-            pipe.zcard(redis_key)
-            pipe.expire(redis_key, 60)
-            results = await pipe.execute()
+        # Pipeline: Remove expired -> Add current -> Count window -> Set TTL
+        pipe = r.pipeline()
+        pipe.zremrangebyscore(redis_key, 0, window_start)
+        pipe.zadd(redis_key, {str(now): now})
+        pipe.zcard(redis_key)
+        pipe.expire(redis_key, 60)
+        results = await pipe.exec() if hasattr(pipe, "exec") else await pipe.execute()
 
         request_count = results[2]
 

@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import math
 import time
@@ -6,6 +7,13 @@ from typing import Optional, Dict, Any, List, Tuple
 from dotenv import load_dotenv
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_openai import OpenAIEmbeddings
+
+# Ensure Windows stdout safely prints UTF-8 logs
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 # Upstream Redis connection
 from gateway.identity import get_redis_client
@@ -28,7 +36,7 @@ async def get_embedding(text: str) -> List[float]:
     if google_key:
         try:
             embedder = GoogleGenerativeAIEmbeddings(
-                model="models/embedding-001",
+                model="models/gemini-embedding-001",
                 google_api_key=google_key
             )
             return await embedder.aembed_query(text)

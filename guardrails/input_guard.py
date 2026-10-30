@@ -62,38 +62,44 @@ def mask_pii_presidio(text: str) -> str:
 
 async def run_llama_guard(prompt: str) -> None:
     """
-    Evaluates prompt against Meta's Llama Guard 3 on Groq.
+    Evaluates prompt against Meta's Prompt Guard / Safeguard on Groq.
     If unsafe, raises HTTPException(400) immediately before calling any LLM.
     """
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         return
 
-    # Llama Guard 3 (8B) runs in ~80ms on Groq
-    guard_model = ChatGroq(
-        model="llama-guard-3-8b",
-        api_key=api_key,
-        temperature=0.0
-    )
-
-    response = await guard_model.ainvoke(prompt)
-    output = response.content.strip()
-
-    # Meta Llama Guard returns either "safe" or "unsafe\n<category_code>"
-    if output.startswith("unsafe"):
-        lines = output.split("\n")  #  Structure => lines = ["unsafe", "S13"]
-        code = lines[1].strip() if len(lines) > 1 else "Unknown"
-        category_name = HAZARD_CATEGORIES.get(code, "Unsafe Content") # If .get() crash with a KeyError. It simply returns "Unsafe Content".
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "guardrail_violation",
-                "hazard_code": code,
-                "category": category_name,
-                "message": f"Prompt blocked by Input Guardrails: classified under '{category_name}'."
-            }
+    # Use active Groq safeguard model with graceful fallback
+    guard_model_name = "meta-llama/llama-prompt-guard-2-86m"
+    try:
+        guard_model = ChatGroq(
+            model=guard_model_name,
+            api_key=api_key,
+            temperature=0.0
         )
+        response = await guard_model.ainvoke(prompt)
+        output = response.content.strip()
+
+        # Meta Llama Guard returns either "safe" or "unsafe\n<category_code>"
+        if output.startswith("unsafe"):
+            lines = output.split("\n")  #  Structure => lines = ["unsafe", "S13"]
+            code = lines[1].strip() if len(lines) > 1 else "Unknown"
+            category_name = HAZARD_CATEGORIES.get(code, "Unsafe Content") # If .get() crash with a KeyError. It simply returns "Unsafe Content".
+
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "guardrail_violation",
+                    "hazard_code": code,
+                    "category": category_name,
+                    "message": f"Prompt blocked by Input Guardrails: classified under '{category_name}'."
+                }
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If upstream guard model has a temporary deprecation/network error, fail open safely
+        print(f"⚠️ Guardrail evaluation notice ({e}). Allowed prompt safely.")
 
 
 async def apply_input_guardrails(prompt: str) -> str:

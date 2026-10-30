@@ -89,7 +89,10 @@ async def record_request_metrics(
         # Safely drop entries older than 3600 seconds (now - 3600)
         pipe.zremrangebyscore("metrics:latencies", 0, now - 3600)
 
-        await pipe.execute()
+        if hasattr(pipe, "exec"):
+            await pipe.exec()
+        else:
+            await pipe.execute()
     except Exception as e:
         print(f"⚠️ Metrics recording error ({e})")
 
