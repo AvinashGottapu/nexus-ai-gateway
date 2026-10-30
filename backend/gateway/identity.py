@@ -104,6 +104,17 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS security_policies (
+                id INTEGER PRIMARY KEY,
+                redact_emails INTEGER DEFAULT 1,
+                redact_phones INTEGER DEFAULT 1,
+                redact_ssn INTEGER DEFAULT 1,
+                prompt_guard_enforced INTEGER DEFAULT 1,
+                ip_allowlist TEXT DEFAULT '0.0.0.0/0 (Global Access)'
+            )
+        """)
+        conn.execute("INSERT OR IGNORE INTO security_policies (id, redact_emails, redact_phones, redact_ssn, prompt_guard_enforced, ip_allowlist) VALUES (1, 1, 1, 1, 1, '0.0.0.0/0 (Global Access)')")
 
         # Seed initial payments if empty
         cursor = conn.cursor()
@@ -579,6 +590,60 @@ def get_payments_summary() -> Dict[str, Any]:
             "failed_count": int(failed_count),
             "total_transactions": int(succeeded_count + failed_count)
         }
+    finally:
+        conn.close()
+
+
+def get_security_policy() -> Dict[str, Any]:
+    """Retrieves active security and PII policies from SQLite."""
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM security_policies WHERE id = 1")
+        row = cur.fetchone()
+        if row:
+            return {
+                "redact_emails": bool(row["redact_emails"]),
+                "redact_phones": bool(row["redact_phones"]),
+                "redact_ssn": bool(row["redact_ssn"]),
+                "prompt_guard_enforced": bool(row["prompt_guard_enforced"]),
+                "ip_allowlist": str(row["ip_allowlist"])
+            }
+        return {
+            "redact_emails": True,
+            "redact_phones": True,
+            "redact_ssn": True,
+            "prompt_guard_enforced": True,
+            "ip_allowlist": "0.0.0.0/0 (Global Access)"
+        }
+    except Exception:
+        return {
+            "redact_emails": True,
+            "redact_phones": True,
+            "redact_ssn": True,
+            "prompt_guard_enforced": True,
+            "ip_allowlist": "0.0.0.0/0 (Global Access)"
+        }
+    finally:
+        conn.close()
+
+
+def update_security_policy(redact_emails: bool, redact_phones: bool, redact_ssn: bool, prompt_guard_enforced: bool, ip_allowlist: str) -> Dict[str, Any]:
+    """Updates security and PII policies in SQLite."""
+    conn = get_db_connection()
+    try:
+        conn.execute("""
+            INSERT INTO security_policies (id, redact_emails, redact_phones, redact_ssn, prompt_guard_enforced, ip_allowlist)
+            VALUES (1, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                redact_emails=excluded.redact_emails,
+                redact_phones=excluded.redact_phones,
+                redact_ssn=excluded.redact_ssn,
+                prompt_guard_enforced=excluded.prompt_guard_enforced,
+                ip_allowlist=excluded.ip_allowlist
+        """, (int(redact_emails), int(redact_phones), int(redact_ssn), int(prompt_guard_enforced), ip_allowlist))
+        conn.commit()
+        return get_security_policy()
     finally:
         conn.close()
 

@@ -20,7 +20,9 @@ from gateway.identity import (
     process_stripe_payment,
     list_all_payments,
     list_user_payments,
-    get_payments_summary
+    get_payments_summary,
+    get_security_policy,
+    update_security_policy
 )
 from orchestrator.circuit_breaker import circuit_breaker
 
@@ -251,6 +253,32 @@ def get_payments_kpi():
     Returns revenue, succeeded payment count, and failed payment count for Admin.
     """
     return get_payments_summary()
+
+
+# --- SECURITY & PII POLICY CONFIGURATION ---
+
+class SecurityConfigRequest(BaseModel):
+    redact_emails: bool = True
+    redact_phones: bool = True
+    redact_ssn: bool = True
+    prompt_guard_enforced: bool = True
+    ip_allowlist: str = "0.0.0.0/0 (Global Access)"
+
+@app.get("/v1/security/config")
+def read_security_config():
+    """Returns active security and PII policies."""
+    return get_security_policy()
+
+@app.post("/v1/security/config")
+def save_security_config(req: SecurityConfigRequest):
+    """Saves updated security and PII policies to SQLite."""
+    return update_security_policy(
+        redact_emails=req.redact_emails,
+        redact_phones=req.redact_phones,
+        redact_ssn=req.redact_ssn,
+        prompt_guard_enforced=req.prompt_guard_enforced,
+        ip_allowlist=req.ip_allowlist
+    )
 
 
 # --- 08 HUMAN IN THE LOOP (REVIEW & AUDIT ENDPOINTS) ---

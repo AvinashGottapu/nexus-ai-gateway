@@ -1,15 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Shield,
   Lock,
   EyeOff,
   Save,
   CheckCircle2,
-  FileCheck
+  FileCheck,
+  Zap
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import { getSecurityConfig, postSecurityConfig } from '../../services/api';
 
 export const SecuritySettings = () => {
   const [redactEmails, setRedactEmails] = useState(true);
@@ -18,11 +20,33 @@ export const SecuritySettings = () => {
   const [promptGuardEnforced, setPromptGuardEnforced] = useState(true);
   const [ipAllowlist, setIpAllowlist] = useState('0.0.0.0/0 (Global Access)');
   const [saved, setSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = (e) => {
+  useEffect(() => {
+    getSecurityConfig().then(res => {
+      if (res.success && res.data) {
+        setRedactEmails(res.data.redact_emails);
+        setRedactPhones(res.data.redact_phones);
+        setRedactSsn(res.data.redact_ssn);
+        setPromptGuardEnforced(res.data.prompt_guard_enforced);
+        if (res.data.ip_allowlist) setIpAllowlist(res.data.ip_allowlist);
+      }
+    });
+  }, []);
+
+  const handleSave = async (e) => {
     e.preventDefault();
+    setIsSaving(true);
+    await postSecurityConfig({
+      redact_emails: redactEmails,
+      redact_phones: redactPhones,
+      redact_ssn: redactSsn,
+      prompt_guard_enforced: promptGuardEnforced,
+      ip_allowlist: ipAllowlist
+    });
+    setIsSaving(false);
     setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    setTimeout(() => setSaved(false), 3500);
   };
 
   return (

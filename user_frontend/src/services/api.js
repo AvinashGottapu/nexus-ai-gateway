@@ -34,6 +34,8 @@ export async function postCreateApiKey({ name, starterCredits = 5.0, rpmLimit = 
   }
 }
 
+
+
 export async function postRevokeApiKey(keyId) {
   try {
     const res = await fetch(`${BACKEND_URL}/v1/keys/revoke`, {
@@ -130,6 +132,8 @@ export async function getLiveTelemetry() {
   }
 }
 
+
+
 // --- PAYMENTS & STRIPE API ---
 
 export async function getLivePayments(userEmail) {
@@ -169,3 +173,34 @@ export async function postStripeCheckout({ userEmail, amountUsd, cardNumber, pay
     return { success: false, error: err.message };
   }
 }
+
+// --- SECURITY & PII POLICY CONFIG ---
+
+export async function getSecurityConfig() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/security/config`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function postSecurityConfig(config) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/security/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+      signal: AbortSignal.timeout(4000)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+

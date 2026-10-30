@@ -34,20 +34,34 @@ SENSITIVE_PII_ENTITIES = [
 def redact_secrets_and_pii(text: str) -> str:
     """
     1. Redacts any accidental internal API key leaks using regex.
-    2. Redacts customer PII (credit cards, SSNs, phone numbers, emails) using Microsoft Presidio.
-       (Excludes public locations, dates, and historical/celebrity names so knowledge answers remain natural).
+    2. Redacts customer PII (credit cards, SSNs, phone numbers, emails) using Microsoft Presidio
+       based on the active Security Settings.
     """
     # 1. Mask API key secrets
     clean_text = text
     for pattern in SECRET_PATTERNS:
         clean_text = re.sub(pattern, "[REDACTED_API_KEY]", clean_text)
 
-    # 2. Mask customer PII using Microsoft Presidio singleton
+    # 2. Mask customer PII using active Security Policies
+    from gateway.identity import get_security_policy
+    policy = get_security_policy()
+
+    entities = ["CREDIT_CARD", "IBAN_CODE", "IP_ADDRESS", "US_PASSPORT", "US_BANK_NUMBER"]
+    if policy.get("redact_emails", True):
+        entities.append("EMAIL_ADDRESS")
+    if policy.get("redact_phones", True):
+        entities.append("PHONE_NUMBER")
+    if policy.get("redact_ssn", True):
+        entities.append("US_SSN")
+
+    if not entities:
+        return clean_text
+
     analyzer, anonymizer = get_presidio()
     analysis = analyzer.analyze(
         text=clean_text,
         language="en",
-        entities=SENSITIVE_PII_ENTITIES
+        entities=entities
     )
     anonymized = anonymizer.anonymize(text=clean_text, analyzer_results=analysis)
     return anonymized.text

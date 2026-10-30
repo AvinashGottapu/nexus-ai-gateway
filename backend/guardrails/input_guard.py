@@ -53,20 +53,34 @@ SENSITIVE_PII_ENTITIES = [
 
 def mask_pii_presidio(text: str) -> str:
     """
-    Uses Microsoft Presidio to detect & anonymize sensitive customer PII:
+    Uses Microsoft Presidio to detect & anonymize sensitive customer PII
+    according to active Security Settings:
     - Credit Cards (CREDIT_CARD)
-    - Phone Numbers (PHONE_NUMBER)
-    - Emails (EMAIL_ADDRESS)
-    - SSNs, Passports, IP addresses
-    (Preserves public country names, dates, and public knowledge entities).
+    - Phone Numbers (PHONE_NUMBER) - configurable
+    - Emails (EMAIL_ADDRESS) - configurable
+    - SSNs, Passports, IP addresses - configurable
     """
+    from gateway.identity import get_security_policy
+    policy = get_security_policy()
+
+    entities = ["CREDIT_CARD", "IBAN_CODE", "IP_ADDRESS", "US_PASSPORT", "US_BANK_NUMBER"]
+    if policy.get("redact_emails", True):
+        entities.append("EMAIL_ADDRESS")
+    if policy.get("redact_phones", True):
+        entities.append("PHONE_NUMBER")
+    if policy.get("redact_ssn", True):
+        entities.append("US_SSN")
+
+    if not entities:
+        return text
+
     analyzer, anonymizer = get_presidio()
 
     # 1. Analyze text for sensitive PII entities only
     results = analyzer.analyze(
         text=text,
         language="en",
-        entities=SENSITIVE_PII_ENTITIES
+        entities=entities
     )
 
     # 2. Anonymize/redact detected entities in-place
@@ -78,7 +92,13 @@ async def run_llama_guard(prompt: str) -> None:
     """
     Evaluates prompt against Meta's Prompt Guard / Safeguard on Groq.
     If unsafe, raises HTTPException(400) immediately before calling any LLM.
+    Bypassed if developer disabled Prompt Guard in Security Settings.
     """
+    from gateway.identity import get_security_policy
+    policy = get_security_policy()
+    if not policy.get("prompt_guard_enforced", True):
+        return
+
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         return
