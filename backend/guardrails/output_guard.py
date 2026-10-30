@@ -145,6 +145,9 @@ async def apply_output_guardrails(
     # Step 1: Privacy & Secrets Check (Fast, local CPU, 0ms latency)
     sanitized = redact_secrets_and_pii(draft_answer)
 
+    # Clean raw HTML line breaks (<br>, <br/>) into standard clean newlines
+    sanitized = re.sub(r"<br\s*/?>", "\n", sanitized, flags=re.IGNORECASE)
+
     # Step 2: Semantic Safety Check (Llama Guard / Prompt Guard)
     guard = get_llama_guard()
     if guard:

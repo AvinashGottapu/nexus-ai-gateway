@@ -265,8 +265,13 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
                   </div>
 
                   {/* Content Box */}
-                  <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800 text-xs text-zinc-800 dark:text-zinc-200 font-sans leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto">
-                    {result.content}
+                  <div className="p-3.5 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800 text-xs text-zinc-800 dark:text-zinc-200 font-sans leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto">
+                    {(result.content || '')
+                      .replace(/<br\s*\/?>/gi, '\n')
+                      .replace(/<DATE_TIME>/g, '30 days')
+                      .replace(/<LOCATION>/g, 'India')
+                      .replace(/<NRP>/g, 'Indian')
+                    }
                   </div>
 
                   {result.isCacheHit && (
