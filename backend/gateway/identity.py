@@ -17,6 +17,9 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+# Load .env from backend root or current directory
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(backend_dir, ".env"))
 load_dotenv()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "gateway.db")
@@ -348,11 +351,16 @@ def process_stripe_payment(
     status: str = "succeeded",
     key_hash: Optional[str] = None,
     payment_method: str = "Stripe (Card •••• 4242)",
-    failure_reason: Optional[str] = None
+    failure_reason: Optional[str] = None,
+    card_number: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Executes a real Stripe charge using STRIPE_SECRET_KEY, records the transaction in SQLite,
     and updates the user's API wallet balance immediately upon success.
+    Supports real developer test cards:
+    - 4242 4242 4242 4242 -> Success (tok_visa)
+    - 4000 0000 0000 0002 -> Card Decline (tok_chargeCustomerFail)
+    - 4000 0000 0000 0127 -> Insufficient Funds (tok_chargeDeclinedInsufficientFunds)
     """
     payment_id = f"pay_str_{secrets.token_hex(8)}"
     stripe_charge_id = None
@@ -362,11 +370,42 @@ def process_stripe_payment(
 
     stripe_secret = os.getenv("STRIPE_SECRET_KEY")
 
+    # Inspect provided developer card number if passed
+    clean_card = (card_number or "").replace(" ", "").strip()
+    fallback_decline_reason = None
+    if clean_card:
+        last4 = clean_card[-4:] if len(clean_card) >= 4 else "4242"
+        final_method = f"Stripe (Visa •••• {last4})"
+        if clean_card.startswith("4000000000000002"):
+            fallback_decline_reason = "Your card was declined."
+            final_status = "failed"
+            final_failure_reason = fallback_decline_reason
+        elif clean_card.startswith("4000000000000127"):
+            fallback_decline_reason = "Your card has insufficient funds."
+            final_status = "failed"
+            final_failure_reason = fallback_decline_reason
+        elif clean_card.startswith("4000000000000069"):
+            fallback_decline_reason = "Your card has expired."
+            final_status = "failed"
+            final_failure_reason = fallback_decline_reason
+
     # If Stripe Secret Key is present in .env, execute a real live Stripe API charge!
     if stripe_secret:
         try:
             import httpx
-            source_token = "tok_visa" if status == "succeeded" else "tok_chargeCustomerFail"
+            
+            # Map developer test card number to Stripe official test tokens
+            if clean_card.startswith("4000000000000002"):
+                source_token = "tok_chargeCustomerFail"
+            elif clean_card.startswith("4000000000000127"):
+                source_token = "tok_chargeDeclinedInsufficientFunds"
+            elif clean_card.startswith("4000000000000069"):
+                source_token = "tok_chargeDeclinedExpiredCard"
+            elif clean_card.startswith("4242"):
+                source_token = "tok_visa"
+            else:
+                source_token = "tok_visa" if status == "succeeded" else "tok_chargeCustomerFail"
+
             cents = max(50, int(round(amount_usd * 100)))
 
             resp = httpx.post(
@@ -376,7 +415,7 @@ def process_stripe_payment(
                     "amount": cents,
                     "currency": "usd",
                     "source": source_token,
-                    "description": f"Nexus Gateway Wallet Recharge for {user_email}"
+                    "description": f"Nexus Gateway Wallet Recharge for {user_email} (Card: {final_method})"
                 },
                 timeout=10.0
             )
@@ -385,20 +424,19 @@ def process_stripe_payment(
             if resp.status_code == 200:
                 final_status = "succeeded"
                 stripe_charge_id = charge_data.get("id")
-                card = charge_data.get("payment_method_details", {}).get("card", {})
-                brand = card.get("brand", "Visa").title() if card.get("brand") else "Visa"
-                last4 = card.get("last4", "4242")
-                final_method = f"Stripe ({brand} •••• {last4})"
+                card_details = charge_data.get("payment_method_details", {}).get("card", {})
+                brand = card_details.get("brand", "Visa").title() if card_details.get("brand") else "Visa"
+                final_method = f"Stripe ({brand} •••• {clean_card[-4:] if len(clean_card) >= 4 else '4242'})"
                 final_failure_reason = None
             else:
                 final_status = "failed"
-                final_failure_reason = charge_data.get("error", {}).get("message", "Card declined by Stripe.")
+                final_failure_reason = charge_data.get("error", {}).get("message", fallback_decline_reason or "Card declined by Stripe.")
                 stripe_charge_id = charge_data.get("error", {}).get("charge")
         except Exception as e:
-            print(f"⚠️ Live Stripe call error ({e}), recording local transaction state.")
-            if status != "succeeded":
+            print(f"⚠️ Live Stripe call notice ({e}), recording local transaction state.")
+            if clean_card.startswith("4000") or status != "succeeded":
                 final_status = "failed"
-                final_failure_reason = str(e)
+                final_failure_reason = fallback_decline_reason or str(e)
 
     conn = get_db_connection()
     try:

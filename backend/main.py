@@ -205,6 +205,10 @@ class CheckoutRequest(BaseModel):
     amount_usd: float = 25.0
     key_hash: Optional[str] = None
     payment_method: Optional[str] = "Stripe (Visa •••• 4242)"
+    card_number: Optional[str] = None
+    exp_month: Optional[str] = None
+    exp_year: Optional[str] = None
+    cvc: Optional[str] = None
     outcome: Optional[str] = "succeeded"  # "succeeded" or "failed"
     failure_reason: Optional[str] = None
 
@@ -214,6 +218,7 @@ def stripe_checkout(req: CheckoutRequest):
     Simulated & real Stripe payment processor:
     - If outcome == 'succeeded': Immediately credits user's SQLite API key wallet.
     - If outcome == 'failed': Records failed transaction without crediting.
+    - Accepts developer test cards (e.g. 4242... for success, 4000...0002 for card decline, 4000...0127 for insufficient funds).
     """
     failure_msg = req.failure_reason if req.outcome == "failed" else None
     if req.outcome == "failed" and not failure_msg:
@@ -225,7 +230,8 @@ def stripe_checkout(req: CheckoutRequest):
         status=req.outcome,
         key_hash=req.key_hash,
         payment_method=req.payment_method,
-        failure_reason=failure_msg
+        failure_reason=failure_msg,
+        card_number=req.card_number
     )
 
 

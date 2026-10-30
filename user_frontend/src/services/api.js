@@ -127,7 +127,7 @@ export async function getLivePayments(userEmail) {
   }
 }
 
-export async function postStripeCheckout({ userEmail, amountUsd, outcome = 'succeeded', failureReason }) {
+export async function postStripeCheckout({ userEmail, amountUsd, cardNumber, paymentMethod, outcome = 'succeeded', failureReason }) {
   try {
     const res = await fetch(`${BACKEND_URL}/v1/payments/checkout`, {
       method: 'POST',
@@ -135,13 +135,17 @@ export async function postStripeCheckout({ userEmail, amountUsd, outcome = 'succ
       body: JSON.stringify({
         user_email: userEmail,
         amount_usd: amountUsd,
-        payment_method: 'Stripe (Visa •••• 4242)',
+        card_number: cardNumber,
+        payment_method: paymentMethod || 'Stripe Card Payment',
         outcome: outcome,
         failure_reason: failureReason
       }),
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(12000)
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      return { success: false, error: err.detail || `HTTP ${res.status}` };
+    }
     const data = await res.json();
     return { success: true, data };
   } catch (err) {
