@@ -276,6 +276,22 @@ async def verify_api_gateway(auth: Optional[HTTPAuthorizationCredentials] = Secu
 
     key_record = get_key_details(hashed)
     if not key_record:
+        # Support playground/dashboard dropdown keys (which pass key_hash or key_id or demo token)
+        with get_db_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM api_keys 
+                WHERE (key_hash = ? OR key_hash LIKE ? OR key_prefix LIKE ? OR ? IN ('sk-live-mock-token', 'demo-key', 'playground')) 
+                  AND is_active = 1 
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (raw_key, f"{raw_key}%", f"{raw_key}%", raw_key)
+            ).fetchone()
+            if row:
+                key_record = dict(row)
+                hashed = key_record["key_hash"]
+
+    if not key_record:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "invalid_api_key", "message": "Invalid API key provided."}

@@ -78,17 +78,25 @@ export async function runLiveInference({ prompt, apiKey, model = 'groq' }) {
     }
 
     const data = await res.json();
+    const totalTokens = data.token_usage
+      ? (data.token_usage.prompt_tokens || 0) + (data.token_usage.completion_tokens || 0)
+      : (data.tokens_used || data.total_tokens || 450);
+    const latency = Math.round(data.timings_ms?.total_latency_ms || data.duration_ms || elapsed);
+    const cost = data.billing?.cost_usd !== undefined ? data.billing.cost_usd : (data.cost_usd || 0.00012);
+    const isHit = Boolean(data.cache?.hit || data.cache_hit || (data.model_used === 'semantic_cache'));
+
     return {
       success: true,
       statusCode: 200,
-      latencyMs: data.duration_ms || elapsed,
+      latencyMs: latency,
       data: {
-        content: data.answer || data.response || JSON.stringify(data),
-        tokens: data.tokens_used || data.total_tokens || 450,
-        costUsd: data.cost_usd || 0.00012,
-        isCacheHit: Boolean(data.cache_hit || (data.model_used === 'semantic_cache')),
-        model: data.model_used || model,
-        traceId: data.trace_id
+        content: data.response || data.answer || JSON.stringify(data),
+        tokens: totalTokens,
+        costUsd: cost,
+        isCacheHit: isHit,
+        model: data.provider || data.model_used || model,
+        traceId: data.trace_id,
+        newBalanceUsd: data.billing?.remaining_balance_usd
       }
     };
   } catch (err) {
