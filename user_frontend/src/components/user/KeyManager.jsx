@@ -15,6 +15,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../ui/Card
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Modal } from '../ui/Modal';
+import { postCreateApiKey, postRevokeApiKey } from '../../services/api';
 
 export const KeyManager = ({ apiKeys, setApiKeys, isModalOpen, setIsModalOpen }) => {
   const [copiedId, setCopiedId] = useState(null);
@@ -36,9 +37,10 @@ export const KeyManager = ({ apiKeys, setApiKeys, isModalOpen, setIsModalOpen })
     setRevealedIds(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleRevoke = (id) => {
+  const handleRevoke = async (id) => {
+    await postRevokeApiKey(id);
     setApiKeys(prev =>
-      prev.map(k => k.id === id ? { ...k, status: 'revoked' } : k)
+      prev.map(k => (k.id === id || k.key_hash === id) ? { ...k, status: 'revoked' } : k)
     );
   };
 
@@ -56,12 +58,8 @@ export const KeyManager = ({ apiKeys, setApiKeys, isModalOpen, setIsModalOpen })
     );
   };
 
-  const handleCreateKey = (e) => {
+  const handleCreateKey = async (e) => {
     e.preventDefault();
-    const randomHex = Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    const raw = `nexus-sk-${keyTier.toLowerCase()}-${randomHex}`;
-    const masked = `nexus-sk-${keyTier.toLowerCase()}••••••••${randomHex.slice(-4)}`;
-
     const rpmLimits = {
       'Free': 10,
       'Tier-1': 60,
@@ -69,13 +67,46 @@ export const KeyManager = ({ apiKeys, setApiKeys, isModalOpen, setIsModalOpen })
       'Enterprise': 1000
     };
 
+    const rpm = rpmLimits[keyTier] || 60;
+    const backendRes = await postCreateApiKey({
+      name: keyName || 'Generated API Key',
+      starterCredits: 5.0,
+      rpmLimit: rpm
+    });
+
+    if (backendRes.success && backendRes.data && backendRes.data.api_key) {
+      const raw = backendRes.data.api_key;
+      const newKey = {
+        id: `key-${Date.now()}`,
+        name: keyName || 'Generated API Key',
+        rawKey: raw,
+        keyMasked: `sk-live-••••••••${raw.slice(-4)}`,
+        tier: keyTier,
+        rpmLimit: rpm,
+        balanceUsd: 5.0000,
+        createdAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        lastUsedAt: 'Never',
+        scopes: scopes,
+        status: 'active'
+      };
+      setApiKeys(prev => [newKey, ...prev]);
+      setNewKeyCreated(newKey);
+      setKeyName('');
+      return;
+    }
+
+    // Local fallback if backend unavailable
+    const randomHex = Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const raw = `nexus-sk-${keyTier.toLowerCase()}-${randomHex}`;
+    const masked = `nexus-sk-${keyTier.toLowerCase()}••••••••${randomHex.slice(-4)}`;
+
     const newKey = {
       id: `key-${Date.now()}`,
       name: keyName || 'Generated API Key',
       rawKey: raw,
       keyMasked: masked,
       tier: keyTier,
-      rpmLimit: rpmLimits[keyTier] || 60,
+      rpmLimit: rpm,
       balanceUsd: 5.0000,
       createdAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
       lastUsedAt: 'Never',

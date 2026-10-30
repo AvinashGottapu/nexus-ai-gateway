@@ -31,6 +31,7 @@ import {
   INITIAL_USERS,
   USER_METRICS
 } from './data/mockData';
+import { getLiveApiKeys, getLiveTelemetry } from './services/api';
 
 export function App() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -55,6 +56,24 @@ export function App() {
   const [requests, setRequests] = useState(INITIAL_REQUESTS);
   const [userMetrics, setUserMetrics] = useState(USER_METRICS);
   const currentUser = INITIAL_USERS[1]; // Sarah Chen (Developer)
+
+  // Fetch real SQLite keys and Upstash telemetry on mount
+  useEffect(() => {
+    getLiveApiKeys().then(res => {
+      if (res.success && res.data && res.data.length > 0) {
+        setApiKeys(res.data);
+      }
+    });
+    getLiveTelemetry().then(res => {
+      if (res.success && res.data) {
+        setUserMetrics(prev => ({
+          ...prev,
+          monthlyApiCalls: res.data.total_requests || prev.monthlyApiCalls,
+          cacheSavingsUsd: (res.data.cache_hits || 0) * 0.00018
+        }));
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (isDark) {

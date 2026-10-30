@@ -31,6 +31,7 @@ import {
   INITIAL_AUDIT_LOGS,
   SYSTEM_METRICS
 } from './data/mockData';
+import { getLiveCircuitBreakers, getLiveObservabilityMetrics, getLiveHitlTickets } from './services/api';
 
 export function App() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -45,6 +46,43 @@ export function App() {
 
   const pendingHitlCount = hitlTickets.filter(t => t.status === 'Pending').length;
   const currentAdmin = users[0]; // Avinash Gottapu (Admin)
+
+  // Fetch live Upstash Redis telemetry & Circuit Breaker status on mount
+  useEffect(() => {
+    getLiveCircuitBreakers().then(res => {
+      if (res.success && res.data) {
+        setCircuitBreakers(prev => prev.map(cb => {
+          const provKey = cb.provider.toLowerCase();
+          if (res.data[provKey]) {
+            return {
+              ...cb,
+              state: res.data[provKey].state || cb.state,
+              failureCount: res.data[provKey].consecutive_failures ?? cb.failureCount
+            };
+          }
+          return cb;
+        }));
+      }
+    });
+
+    getLiveObservabilityMetrics().then(res => {
+      if (res.success && res.data) {
+        setSystemMetrics(prev => ({
+          ...prev,
+          totalRequests: res.data.total_requests || prev.totalRequests,
+          p95LatencyMs: Math.round(res.data.p95_latency_ms || prev.p95LatencyMs),
+          totalTokens: res.data.total_tokens || prev.totalTokens,
+          cacheHitRatio: res.data.cache_hit_ratio_percent ? parseFloat(res.data.cache_hit_ratio_percent) : prev.cacheHitRatio
+        }));
+      }
+    });
+
+    getLiveHitlTickets().then(res => {
+      if (res.success && res.data && res.data.length > 0) {
+        setHitlTickets(res.data);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (isDark) {

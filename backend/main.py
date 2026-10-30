@@ -14,8 +14,11 @@ from gateway.identity import (
     verify_api_gateway,
     create_api_key,
     recharge_key,
-    deduct_usage_cost
+    deduct_usage_cost,
+    list_api_keys,
+    revoke_api_key
 )
+from orchestrator.circuit_breaker import circuit_breaker
 
 # 01 Input & Output Guardrails (Microsoft Presidio PII Masking, Meta Llama Guard 3 & Grounding)
 from guardrails.input_guard import apply_input_guardrails
@@ -55,6 +58,17 @@ app = FastAPI(
     title="AI Inference Platform Gateway",
     description="Mini-OpenRouter Architecture with Redis Rate Limiting & Credit Wallets",
     version="1.0.0"
+)
+
+from fastapi.middleware.cors import CORSMiddleware
+
+# Enable CORS for user_frontend (port 3000) and admin_frontend (port 3001)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- REQUEST & RESPONSE SCHEMAS ---
@@ -129,6 +143,34 @@ def generate_api_key(req: KeyCreateRequest):
     )
 
 
+@app.get("/v1/keys")
+def get_all_keys():
+    """
+    Returns all API keys in SQLite for the Key Manager UI.
+    """
+    return list_api_keys()
+
+
+class KeyRevokeRequest(BaseModel):
+    key_id: str
+
+@app.post("/v1/keys/revoke")
+def revoke_key_route(req: KeyRevokeRequest):
+    """
+    Revokes an active API key in SQLite.
+    """
+    success = revoke_api_key(req.key_id)
+    return {"key_id": req.key_id, "revoked": success}
+
+
+@app.get("/v1/ops/circuit-breakers")
+def get_circuit_breakers_status():
+    """
+    Layer D: Returns live health of Groq, OpenAI, and Gemini circuit breakers.
+    """
+    return circuit_breaker.get_status()
+
+
 @app.post("/v1/keys/recharge")
 def topup_credits(req: RechargeRequest):
     """
@@ -198,6 +240,7 @@ async def ingest_knowledge_document(
 # --- PROTECTED INFERENCE ENDPOINT ---
 
 @app.post("/chat")
+@app.post("/v1/chat/completions")
 async def chat(
     req: PromptRequest,
     client_info: Dict[str, Any] = Depends(verify_api_gateway)  # 👈 GATEWAY INTERCEPTOR

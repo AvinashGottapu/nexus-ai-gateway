@@ -276,5 +276,43 @@ async def verify_api_gateway(auth: Optional[HTTPAuthorizationCredentials] = Secu
     return key_record
 
 
+def list_api_keys():
+    """Returns list of stored API keys for User/Admin portal management."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key_hash, key_prefix, name, balance_usd, total_spent_usd, rpm_limit, is_active, created_at FROM api_keys ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r["key_hash"][:12],
+                "name": r["name"],
+                "key_hash": r["key_hash"],
+                "key_masked": f"{r['key_prefix']}••••••••{r['key_hash'][:4]}",
+                "tier": "Free" if r["rpm_limit"] <= 10 else "Tier-1" if r["rpm_limit"] <= 60 else "Tier-2",
+                "balance_usd": float(r["balance_usd"]),
+                "rpm_limit": int(r["rpm_limit"]),
+                "scopes": ["inference:read", "inference:write", "cache:read"],
+                "status": "active" if bool(r["is_active"]) else "revoked",
+                "created_at": str(r["created_at"])
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def revoke_api_key(key_id_or_hash: str):
+    """Deactivates an API key in SQLite."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE api_keys SET is_active = 0 WHERE key_hash LIKE ? OR key_prefix LIKE ?", (f"{key_id_or_hash}%", f"{key_id_or_hash}%"))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
 # Initialize SQLite table on load
 init_db()
