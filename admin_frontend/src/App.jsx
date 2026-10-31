@@ -71,12 +71,18 @@ export function App() {
 
     getLiveObservabilityMetrics().then(res => {
       if (res.success && res.data) {
+        const liveP95 = res.data.latency?.p95_ms ?? res.data.p95_latency_ms;
+        const liveTokens = res.data.consumption?.total_tokens ?? res.data.total_tokens;
+        const liveSpend = res.data.consumption?.total_spend_usd ?? res.data.total_spend_usd;
+        const liveHitRatio = res.data.cache_hit_ratio_percent ?? (res.data.cache_hit_ratio ? parseFloat(res.data.cache_hit_ratio) : null);
+
         setSystemMetrics(prev => ({
           ...prev,
-          totalRequests: res.data.total_requests || prev.totalRequests,
-          p95LatencyMs: Math.round(res.data.p95_latency_ms || prev.p95LatencyMs),
-          totalTokens: res.data.total_tokens || prev.totalTokens,
-          cacheHitRatio: res.data.cache_hit_ratio_percent ? parseFloat(res.data.cache_hit_ratio_percent) : prev.cacheHitRatio
+          totalRequests: res.data.total_requests !== undefined ? res.data.total_requests : prev.totalRequests,
+          p95LatencyMs: (liveP95 !== undefined && liveP95 > 0) ? Math.round(liveP95) : prev.p95LatencyMs,
+          totalTokens: liveTokens !== undefined && liveTokens > 0 ? liveTokens : prev.totalTokens,
+          estimatedCostUsd: liveSpend !== undefined && liveSpend > 0 ? liveSpend : prev.estimatedCostUsd,
+          cacheHitRatio: liveHitRatio !== null ? liveHitRatio : prev.cacheHitRatio
         }));
       }
     });

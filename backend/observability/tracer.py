@@ -154,12 +154,19 @@ async def get_gateway_metrics() -> Dict[str, Any]:
                 p95_index = max(0, min(p95_index, len(scores) - 1))
                 p95_latency_ms = round(scores[p95_index], 2)
 
+        ratio_num = round(ratio_val, 1) if total_requests > 0 else 0.0
+
         return {
             "status": "healthy",
             "layer": "09 Production Operations (Observability)",
             "total_requests": total_requests,
             "cache_hit_ratio": hit_ratio,
+            "cache_hit_ratio_percent": ratio_num,
             "cache_hits": cache_hits,
+            "p95_latency_ms": p95_latency_ms,
+            "avg_latency_ms": avg_latency_ms,
+            "total_tokens": total_tokens,
+            "total_spend_usd": round(total_cost, 6),
             "latency": {
                 "avg_ms": avg_latency_ms,
                 "p95_ms": p95_latency_ms,
