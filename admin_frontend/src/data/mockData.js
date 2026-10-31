@@ -323,14 +323,14 @@ export const INITIAL_AUDIT_LOGS = [
 ];
 
 export const SYSTEM_METRICS = {
-  totalRequests: 28410,
-  cacheHitRatio: 41.8,
+  totalRequests: null,
+  cacheHitRatio: 45.2,
   p95LatencyMs: null,
-  totalTokens: 14290320,
-  estimatedCostUsd: 12.84,
+  totalTokens: null,
+  estimatedCostUsd: null,
   savedCostUsd: 8.92,
   activeAlertsCount: 1,
-  currentRpm: 46
+  currentRpm: null
 };
 
 export const USER_METRICS = {

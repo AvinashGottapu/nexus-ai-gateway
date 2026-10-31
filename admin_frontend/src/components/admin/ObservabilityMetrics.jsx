@@ -7,7 +7,8 @@ import {
   Layers,
   Server,
   ArrowUpRight,
-  TrendingDown
+  TrendingDown,
+  Loader2
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { Badge } from '../ui/Badge';
@@ -38,7 +39,10 @@ export const ObservabilityMetrics = ({ metrics, circuitBreakers, isLoadingMetric
           <CardContent className="space-y-1.5">
             <span className="text-xs font-semibold text-zinc-400">P95 Latency (95th Percentile)</span>
             {isLoadingMetrics || metrics.p95LatencyMs === null || metrics.p95LatencyMs === undefined ? (
-              <div className="h-8 w-24 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse my-1" />
+              <div className="flex items-center gap-2 my-2">
+                <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+                <span className="text-xs text-zinc-400 font-mono">Syncing...</span>
+              </div>
             ) : (
               <div className="text-2xl font-bold font-mono text-indigo-400">{metrics.p95LatencyMs} ms</div>
             )}
