@@ -20,6 +20,17 @@ def init_tickets_db():
                 reviewed_by TEXT
             )
         """)
+        # Seed initial pending tickets if table is empty
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM human_review_tickets")
+        if cursor.fetchone()[0] == 0:
+            conn.execute("""
+                INSERT INTO human_review_tickets (ticket_id, prompt, reason, status, created_at)
+                VALUES 
+                ('tkt_9a12c8', 'DELETE FROM users WHERE account_age_days > 365 AND is_active = 0', 'Mass bulk deletion of user account records requested via automated agent.', 'pending_approval', '2026-10-30 21:10:00'),
+                ('tkt_3f44b1', 'Initiate international wire transfer of $15,000 to escrow account AC-9912.', 'Financial transaction exceeding the $5,000 autonomous execution threshold.', 'pending_approval', '2026-10-30 22:30:00'),
+                ('tkt_7b08d4', 'Rotate all root JWT secrets and force-terminate active API sessions.', 'High-privilege security credentials invalidation.', 'pending_approval', '2026-10-31 00:15:00')
+            """)
         conn.commit()
 
 
@@ -48,6 +59,17 @@ def list_pending_tickets() -> List[Dict[str, Any]]:
     with get_db_connection() as conn:
         rows = conn.execute(
             "SELECT * FROM human_review_tickets WHERE status = 'pending_approval' ORDER BY created_at DESC"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def list_all_tickets() -> List[Dict[str, Any]]:
+    """
+    Returns all escalation tickets (pending, approved, rejected) for the Admin console.
+    """
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM human_review_tickets ORDER BY created_at DESC"
         ).fetchall()
         return [dict(row) for row in rows]
 

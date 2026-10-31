@@ -99,12 +99,33 @@ async def run_llama_guard(prompt: str) -> None:
     if not policy.get("prompt_guard_enforced", True):
         return
 
+    # Local deterministic hazard interceptor (0ms defense layer)
+    lower = prompt.lower()
+    dangerous_signatures = [
+        ("malware", "S13", "Cyberattacks & Hacking"),
+        ("exploit", "S14", "Software Vulnerabilities & Exploits"),
+        ("wipe production", "S13", "Cyberattacks & Hacking"),
+        ("ddos payload", "S13", "Cyberattacks & Hacking"),
+        ("ransomware", "S13", "Cyberattacks & Hacking")
+    ]
+    for term, code, cat_name in dangerous_signatures:
+        if term in lower:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "guardrail_violation",
+                    "hazard_code": code,
+                    "category": cat_name,
+                    "message": f"Prompt blocked by Input Guardrails: classified under '{cat_name}'."
+                }
+            )
+
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         return
 
     # Use active Groq safeguard model with graceful fallback
-    guard_model_name = "meta-llama/llama-prompt-guard-2-86m"
+    guard_model_name = "llama-guard-3-8b"
     try:
         guard_model = ChatGroq(
             model=guard_model_name,

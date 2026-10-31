@@ -14,25 +14,38 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
+import { postReviewHitlTicket } from '../../services/api';
 
 export const HITLQueue = ({ hitlTickets, setHitlTickets }) => {
   const [filter, setFilter] = useState('Pending');
   const [activeTicket, setActiveTicket] = useState(null);
   const [reviewerNote, setReviewerNote] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const filteredTickets = hitlTickets.filter(t => {
     if (filter === 'ALL') return true;
     return t.status === filter;
   });
 
-  const handleAction = (ticketId, decision) => {
+  const handleAction = async (ticketId, decision) => {
+    setIsSubmitting(true);
+    const note = reviewerNote || (decision === 'Approved' ? 'Manual override approved by Operations Engineer' : 'Blocked per security policy');
+    
+    // Call live backend endpoint to persist in SQLite
+    try {
+      await postReviewHitlTicket(ticketId, decision.toLowerCase(), note);
+    } catch (e) {
+      console.warn("Could not sync HITL review to backend:", e);
+    }
+
     setHitlTickets(prev =>
       prev.map(t => t.id === ticketId ? {
         ...t,
         status: decision,
-        reviewerNote: reviewerNote || (decision === 'Approved' ? 'Manual override approved by Operations Engineer' : 'Blocked per security policy')
+        reviewerNote: note
       } : t)
     );
+    setIsSubmitting(false);
     setActiveTicket(null);
     setReviewerNote('');
   };

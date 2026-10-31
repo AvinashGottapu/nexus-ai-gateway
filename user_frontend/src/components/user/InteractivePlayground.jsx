@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Send,
   Zap,
@@ -23,6 +23,16 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState(null);
 
+  // Automatically sync selectedKeyId whenever live apiKeys loads/updates
+  useEffect(() => {
+    if (apiKeys && apiKeys.length > 0) {
+      const match = apiKeys.find(k => k.id === selectedKeyId || k.key_hash === selectedKeyId);
+      if (!match) {
+        setSelectedKeyId(apiKeys[0].id || apiKeys[0].key_hash || '');
+      }
+    }
+  }, [apiKeys, selectedKeyId]);
+
   const presets = [
     { label: 'Cache Hit Test (Shoe Policy)', text: 'What is the return policy for footwear within 30 days?' },
     { label: 'Python Async Redis Script', text: 'Write a Python FastAPI Redis client with automatic retries.' },
@@ -34,7 +44,7 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
     setResult(null);
 
     const activeKey = apiKeys.find(k => k.id === selectedKeyId || k.key_hash === selectedKeyId) || apiKeys[0];
-    const keyToUse = activeKey?.rawKey || activeKey?.key_hash || activeKey?.id || 'sk-live-mock-token';
+    const keyToUse = activeKey?.key_hash || activeKey?.rawKey || activeKey?.id || 'demo-key';
 
     // Attempt live execution against running backend
     const live = await runLiveInference({
@@ -48,6 +58,9 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
     if (live.success && live.data) {
       setResult({
         ...live.data,
+        latencyMs: live.data.latencyMs ?? live.latencyMs ?? 0,
+        promptTokens: live.data.promptTokens ?? 0,
+        completionTokens: live.data.completionTokens ?? 0,
         isLive: true
       });
       if (onRequestGenerated) {
@@ -69,9 +82,14 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
       return;
     }
 
-    // If live backend call failed, report the real connectivity/upstream error cleanly
+    // If live backend call failed, report the real error cleanly
+    const isAuthErr = live.statusCode === 401 || live.statusCode === 403;
+    const errorDetails = isAuthErr
+      ? `Authentication / Authorization Error: ${live.error}\n\nPlease select an active API Key from the dropdown, or create a new key under 'API Keys'.`
+      : `Gateway Request Failed: ${live.error || 'Connection refused'}\n\nCould not reach the FastAPI gateway at http://localhost:8000.\n\nEnsure your backend is running:\n  cd backend\n  python -m uvicorn main:app --port 8000 --reload`;
+
     const errorResponse = {
-      content: `⚠️ Gateway Request Failed: ${live.error || 'Connection refused'}\n\nCould not reach the FastAPI gateway at http://localhost:8000.\n\nTo get real-time answers directly from Groq/LLM, ensure your backend is running:\n  cd backend\n  ..\\.venv\\Scripts\\python.exe -m uvicorn main:app --port 8000`,
+      content: `⚠️ ${errorDetails}`,
       model: selectedModel,
       latencyMs: live.latencyMs || 0,
       isCacheHit: false,
@@ -79,7 +97,7 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
       costUsd: 0.0,
       piiRedacted: false,
       isLive: false,
-      backendError: live.error || 'Backend not reachable on http://localhost:8000'
+      backendError: live.error || 'Request failed'
     };
 
     setResult(errorResponse);
@@ -251,16 +269,21 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
                   {/* Badges Strip */}
                   <div className="grid grid-cols-3 gap-2">
                     <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800 text-center">
-                      <span className="text-[10px] text-zinc-400 block">Latency</span>
-                      <span className="text-xs font-bold font-mono text-emerald-500">{result.latencyMs} ms</span>
+                      <span className="text-[10px] text-zinc-400 block font-medium">Latency</span>
+                      <span className="text-xs font-bold font-mono text-emerald-500">{result.latencyMs ?? 0} ms</span>
                     </div>
                     <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800 text-center">
-                      <span className="text-[10px] text-zinc-400 block">Tokens</span>
-                      <span className="text-xs font-bold font-mono text-zinc-200">{result.tokens}</span>
+                      <span className="text-[10px] text-zinc-400 block font-medium">Total Tokens</span>
+                      <span className="text-xs font-bold font-mono text-zinc-900 dark:text-zinc-200">{result.tokens ?? 0}</span>
+                      {(result.promptTokens > 0 || result.completionTokens > 0) && (
+                        <span className="text-[9px] text-zinc-500 dark:text-zinc-400 block font-mono">
+                          {result.promptTokens} in • {result.completionTokens} out
+                        </span>
+                      )}
                     </div>
                     <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800 text-center">
-                      <span className="text-[10px] text-zinc-400 block">Cost</span>
-                      <span className="text-xs font-bold font-mono text-amber-400">${result.costUsd.toFixed(6)}</span>
+                      <span className="text-[10px] text-zinc-400 block font-medium">Cost</span>
+                      <span className="text-xs font-bold font-mono text-amber-400">${(result.costUsd ?? 0).toFixed(6)}</span>
                     </div>
                   </div>
 

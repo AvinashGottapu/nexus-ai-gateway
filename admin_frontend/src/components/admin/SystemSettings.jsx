@@ -57,7 +57,7 @@ export const SystemSettings = () => {
           <CardContent className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
                   Cosine Similarity Cutoff Threshold (0.00 – 1.00)
                 </label>
                 <input
@@ -67,22 +67,22 @@ export const SystemSettings = () => {
                   max="1.0"
                   value={similarityThreshold}
                   onChange={(e) => setSimilarityThreshold(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-xs rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
                 <p className="text-[11px] text-zinc-500 mt-1">Recommended: 0.90 to 0.94 for high precision</p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
                   Upstash REST Protocol Endpoint
                 </label>
                 <input
                   type="text"
                   disabled
                   value="https://pretty-bluebird-137115.upstash.io (Port 443 HTTPS)"
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono select-all"
+                  className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 font-mono select-all"
                 />
-                <p className="text-[11px] text-emerald-400 mt-1">✓ Verified REST over HTTPS</p>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">✓ Verified REST over HTTPS</p>
               </div>
             </div>
           </CardContent>
@@ -92,14 +92,14 @@ export const SystemSettings = () => {
         <Card>
           <CardHeader>
             <CardTitle>Layer D: Circuit Breaker Sentinel & Reliability</CardTitle>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Trip conditions for external model provider degradation.
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
                   Consecutive Failure Trip Limit
                 </label>
                 <input
@@ -108,13 +108,13 @@ export const SystemSettings = () => {
                   max="10"
                   value={failureThreshold}
                   onChange={(e) => setFailureThreshold(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-xs rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
                 <p className="text-[11px] text-zinc-500 mt-1">Default: 3 failures</p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
                   Cooldown Window (Seconds)
                 </label>
                 <input
@@ -123,13 +123,13 @@ export const SystemSettings = () => {
                   max="300"
                   value={cooldownSec}
                   onChange={(e) => setCooldownSec(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-xs rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
                 <p className="text-[11px] text-zinc-500 mt-1">Default: 60s cooldown</p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
                   Provider Concurrency Semaphore Cap
                 </label>
                 <input
@@ -138,7 +138,7 @@ export const SystemSettings = () => {
                   max="50"
                   value={concurrencyCap}
                   onChange={(e) => setConcurrencyCap(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-xs rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
                 <p className="text-[11px] text-zinc-500 mt-1">Default: 5 simultaneous slots</p>
               </div>
@@ -150,13 +150,13 @@ export const SystemSettings = () => {
         <Card>
           <CardHeader>
             <CardTitle>Layer C: Session Store & Conversation Memory</CardTitle>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Sliding TTL for multi-turn user message history in Redis.
             </p>
           </CardHeader>
           <CardContent>
             <div className="max-w-xs">
-              <label className="block text-xs font-semibold text-zinc-300 mb-1">
+              <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
                 Sliding Session TTL (Hours)
               </label>
               <input
@@ -165,7 +165,7 @@ export const SystemSettings = () => {
                 max="24"
                 value={sessionTtlHours}
                 onChange={(e) => setSessionTtlHours(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full px-3 py-2 text-xs rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
               <p className="text-[11px] text-zinc-500 mt-1">Default: 2 hours (7200 seconds)</p>
             </div>

@@ -157,7 +157,7 @@ export const PaymentsManager = () => {
       {/* Payments Table */}
       <Card>
         {/* Filter Toolbar */}
-        <div className="p-3.5 border-b border-zinc-800 flex flex-col md:flex-row items-center justify-between gap-3 bg-zinc-900/40">
+        <div className="p-3.5 border-b border-zinc-200/80 dark:border-zinc-800 flex flex-col md:flex-row items-center justify-between gap-3 bg-zinc-50/50 dark:bg-zinc-900/40">
           <div className="relative w-full md:w-80">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
             <input
@@ -165,7 +165,7 @@ export const PaymentsManager = () => {
               placeholder="Search by User Email, Payment ID, or Stripe Charge ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
             />
           </div>
 
@@ -176,8 +176,8 @@ export const PaymentsManager = () => {
                 onClick={() => setStatusFilter(st)}
                 className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
                   statusFilter === st
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                    : 'text-zinc-400 hover:text-zinc-200 bg-zinc-900'
+                    ? 'bg-amber-500/15 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40'
+                    : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200 bg-zinc-100 dark:bg-zinc-900'
                 }`}
               >
                 {st === 'ALL' ? 'All Statuses' : st === 'succeeded' ? '✓ Succeeded' : '✕ Failed'}

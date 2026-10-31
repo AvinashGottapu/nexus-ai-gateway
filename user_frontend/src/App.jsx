@@ -112,9 +112,9 @@ export function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col font-sans transition-colors duration-150">
+    <div className="h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col font-sans transition-colors duration-150 overflow-hidden">
       {/* Top Application Bar */}
-      <header className="sticky top-0 z-40 w-full h-14 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800/80 px-4 flex items-center justify-between select-none">
+      <header className="shrink-0 z-40 w-full h-14 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800/80 px-4 flex items-center justify-between select-none">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-indigo-600 dark:bg-indigo-500 flex items-center justify-center text-white shadow-xs">
@@ -205,7 +205,7 @@ export function App() {
       {/* Main Shell */}
       <div className="flex-1 flex overflow-hidden">
         {/* Compact Sidebar */}
-        <aside className="w-64 shrink-0 border-r border-zinc-200 dark:border-zinc-800/80 bg-white/70 dark:bg-zinc-950/50 flex flex-col justify-between p-3 select-none">
+        <aside className="w-64 shrink-0 border-r border-zinc-200 dark:border-zinc-800/80 bg-white/70 dark:bg-zinc-950/50 flex flex-col justify-between p-3 select-none overflow-y-auto">
           <div className="space-y-4">
             <div className="px-3 py-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 flex items-center justify-between">
               <div className="flex items-center gap-2">

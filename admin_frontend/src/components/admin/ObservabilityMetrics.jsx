@@ -54,7 +54,7 @@ export const ObservabilityMetrics = ({ metrics, circuitBreakers }) => {
       <Card>
         <CardHeader>
           <CardTitle>End-to-End Latency Waterfall by Phase</CardTitle>
-          <p className="text-xs text-zinc-400 mt-0.5">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
             Time spent within each gateway layer during standard request resolution.
           </p>
         </CardHeader>
@@ -70,10 +70,10 @@ export const ObservabilityMetrics = ({ metrics, circuitBreakers }) => {
             ].map((item, idx) => (
               <div key={idx} className="space-y-1">
                 <div className="flex justify-between text-xs">
-                  <span className="text-zinc-300 font-medium">{item.phase}</span>
-                  <span className="font-mono text-zinc-400">{item.ms} ms ({item.pct}%)</span>
+                  <span className="text-zinc-700 dark:text-zinc-300 font-medium">{item.phase}</span>
+                  <span className="font-mono text-zinc-500 dark:text-zinc-400">{item.ms} ms ({item.pct}%)</span>
                 </div>
-                <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                <div className="w-full bg-zinc-200 dark:bg-zinc-800 rounded-full h-2 overflow-hidden">
                   <div className={`${item.color} h-2 rounded-full`} style={{ width: `${item.pct * 1.5}%` }} />
                 </div>
               </div>
@@ -86,43 +86,43 @@ export const ObservabilityMetrics = ({ metrics, circuitBreakers }) => {
       <Card>
         <CardHeader>
           <CardTitle>Provider Semaphore Concurrency Caps</CardTitle>
-          <p className="text-xs text-zinc-400 mt-0.5">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
             Hard concurrency caps preventing HTTP 429 quota exhaustion. Max wait timeout: 2.0s.
           </p>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800 space-y-2">
-              <div className="flex justify-between text-xs font-semibold text-zinc-200">
+            <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2">
+              <div className="flex justify-between text-xs font-semibold text-zinc-800 dark:text-zinc-200">
                 <span>Groq Cloud</span>
-                <span className="text-emerald-400">2 / 5 Active</span>
+                <span className="text-emerald-600 dark:text-emerald-400">2 / 5 Active</span>
               </div>
-              <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+              <div className="w-full bg-zinc-200 dark:bg-zinc-800 rounded-full h-1.5 overflow-hidden">
                 <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: '40%' }} />
               </div>
-              <span className="text-[11px] text-zinc-400">Semaphore cap: 5 slots</span>
+              <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Semaphore cap: 5 slots</span>
             </div>
 
-            <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800 space-y-2">
-              <div className="flex justify-between text-xs font-semibold text-zinc-200">
+            <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2">
+              <div className="flex justify-between text-xs font-semibold text-zinc-800 dark:text-zinc-200">
                 <span>Google Gemini</span>
-                <span className="text-indigo-400">1 / 5 Active</span>
+                <span className="text-indigo-600 dark:text-indigo-400">1 / 5 Active</span>
               </div>
-              <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+              <div className="w-full bg-zinc-200 dark:bg-zinc-800 rounded-full h-1.5 overflow-hidden">
                 <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: '20%' }} />
               </div>
-              <span className="text-[11px] text-zinc-400">Semaphore cap: 5 slots</span>
+              <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Semaphore cap: 5 slots</span>
             </div>
 
-            <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800 space-y-2">
-              <div className="flex justify-between text-xs font-semibold text-zinc-200">
+            <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2">
+              <div className="flex justify-between text-xs font-semibold text-zinc-800 dark:text-zinc-200">
                 <span>OpenAI</span>
-                <span className="text-rose-400">0 / 5 (OPEN)</span>
+                <span className="text-rose-600 dark:text-rose-400">0 / 5 (OPEN)</span>
               </div>
-              <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+              <div className="w-full bg-zinc-200 dark:bg-zinc-800 rounded-full h-1.5 overflow-hidden">
                 <div className="bg-rose-500 h-1.5 rounded-full" style={{ width: '0%' }} />
               </div>
-              <span className="text-[11px] text-zinc-400">Breaker tripped: 0 / 5</span>
+              <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Breaker tripped: 0 / 5</span>
             </div>
           </div>
         </CardContent>

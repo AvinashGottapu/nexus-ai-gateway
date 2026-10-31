@@ -22,7 +22,8 @@ from gateway.identity import (
     list_user_payments,
     get_payments_summary,
     get_security_policy,
-    update_security_policy
+    update_security_policy,
+    toggle_key_status
 )
 from orchestrator.circuit_breaker import circuit_breaker
 
@@ -54,7 +55,7 @@ from eval.feedback import submit_feedback, get_feedback_summary
 
 # Orchestrator & Layer B (Router 04, Model Gateway 07, HITL 08, RAG 05)
 from orchestrator.router import orchestrate_request
-from orchestrator.hitl import list_pending_tickets, review_ticket
+from orchestrator.hitl import list_pending_tickets, list_all_tickets, review_ticket
 from orchestrator.rag import ingest_temporary_knowledge
 from orchestrator.model_gateway import calculate_token_cost
 
@@ -101,6 +102,10 @@ class RechargeRequest(BaseModel):
 class TicketReviewRequest(BaseModel):
     decision: str  # "approved" or "rejected"
     reviewer_name: Optional[str] = "Human Supervisor"
+
+class UserStatusUpdateRequest(BaseModel):
+    key_id: str
+    is_active: bool
 
 class FeedbackRequest(BaseModel):
     trace_id: str
@@ -283,6 +288,14 @@ def save_security_config(req: SecurityConfigRequest):
 
 # --- 08 HUMAN IN THE LOOP (REVIEW & AUDIT ENDPOINTS) ---
 
+@app.get("/v1/hitl/tickets")
+def get_all_human_tickets():
+    """
+    08 Human in the Loop:
+    List all requests (pending, approved, rejected) for the Admin Queue table.
+    """
+    return list_all_tickets()
+
 @app.get("/v1/hitl/tickets/pending")
 def get_pending_human_tickets():
     """
@@ -303,6 +316,14 @@ def review_human_ticket(ticket_id: str, req: TicketReviewRequest):
         decision=req.decision.lower(),
         reviewer_name=req.reviewer_name
     )
+
+
+@app.post("/v1/admin/users/status")
+def change_user_status(req: UserStatusUpdateRequest):
+    """
+    Suspends or activates a user/API key in SQLite.
+    """
+    return toggle_key_status(req.key_id, 1 if req.is_active else 0)
 
 
 # --- 05 RETRIEVAL / RAG (2-HOUR TEMPORARY KNOWLEDGE INGESTION) ---
@@ -529,6 +550,37 @@ async def gateway_telemetry():
 
 
 # --- LAYER D: EVALUATION & USER FEEDBACK ---
+
+from eval.golden_set import run_golden_set_suite, get_latest_benchmark_run, get_benchmark_history
+
+class BenchmarkRunRequest(BaseModel):
+    provider: Optional[str] = "all"
+
+@app.post("/v1/eval/benchmark/run")
+async def execute_golden_benchmark(req: Optional[BenchmarkRunRequest] = None):
+    """
+    Layer D: Automated Evals Studio - Runs the 10-layer Golden Benchmark Suite
+    with real-time LLM-as-a-Judge hallucination scoring and guardrail regression testing.
+    """
+    target = req.provider if req and req.provider else "all"
+    return await run_golden_set_suite(target_provider=target)
+
+
+@app.get("/v1/eval/benchmark/latest")
+def get_latest_eval_scorecard():
+    """
+    Layer D: Automated Evals Studio - Returns the latest benchmark run scorecard and KPIs.
+    """
+    return get_latest_benchmark_run()
+
+
+@app.get("/v1/eval/benchmark/history")
+def get_eval_benchmark_history():
+    """
+    Layer D: Automated Evals Studio - Returns historical benchmark runs for trend analysis.
+    """
+    return get_benchmark_history()
+
 
 @app.post("/v1/feedback")
 def give_user_feedback(req: FeedbackRequest):

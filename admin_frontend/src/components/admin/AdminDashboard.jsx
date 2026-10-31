@@ -12,7 +12,8 @@ import {
   Server,
   ShieldAlert,
   Zap,
-  ArrowUpRight
+  ArrowUpRight,
+  Award
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { Badge } from '../ui/Badge';
@@ -54,16 +55,16 @@ export const AdminDashboard = ({
       )}
 
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-zinc-900/90 border border-zinc-800 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-white dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 shadow-xs">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[11px] font-semibold mb-2">
+          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[11px] font-semibold mb-2">
             <ShieldAlert className="w-3 h-3" />
             <span>Cluster Security & Inference Telemetry</span>
           </div>
-          <h1 className="text-xl font-bold text-zinc-50 tracking-tight">
+          <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50 tracking-tight">
             Executive Operations Console
           </h1>
-          <p className="text-xs text-zinc-400 mt-1 max-w-xl leading-relaxed">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-xl leading-relaxed">
             Real-time control plane across Layer A (Gateway/Cache), Layer B (Routing/HITL), Layer C (Memory), and Layer D (Observability/Circuit Breakers).
           </p>
         </div>
@@ -75,6 +76,14 @@ export const AdminDashboard = ({
             onClick={handleTriggerBackup}
           >
             Create DB Snapshot
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<Award className="w-3.5 h-3.5 text-amber-500" />}
+            onClick={() => setActiveTab('evals')}
+          >
+            Evals Studio
           </Button>
           <Button
             variant="primary"
@@ -93,15 +102,15 @@ export const AdminDashboard = ({
         <Card>
           <CardContent className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-400">Total Throughput</span>
-              <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
+              <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Total Throughput</span>
+              <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500 dark:text-indigo-400">
                 <Activity className="w-4 h-4" />
               </div>
             </div>
-            <div className="text-2xl font-bold font-mono text-zinc-50">
-              {metrics.currentRpm} <span className="text-xs font-normal text-zinc-400">RPM</span>
+            <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-50">
+              {metrics.currentRpm} <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">RPM</span>
             </div>
-            <div className="text-xs text-zinc-400">
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">
               {metrics.totalRequests.toLocaleString()} requests routed
             </div>
           </CardContent>
@@ -111,15 +120,15 @@ export const AdminDashboard = ({
         <Card>
           <CardContent className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-400">P95 Latency</span>
-              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+              <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">P95 Latency</span>
+              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 dark:text-emerald-400">
                 <Clock className="w-4 h-4" />
               </div>
             </div>
-            <div className="text-2xl font-bold font-mono text-emerald-400">
-              {metrics.p95LatencyMs} <span className="text-xs font-normal text-zinc-400">ms</span>
+            <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+              {metrics.p95LatencyMs} <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">ms</span>
             </div>
-            <div className="text-xs text-zinc-400">
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">
               Sub-40ms on Redis Semantic Cache Hits
             </div>
           </CardContent>
@@ -129,15 +138,15 @@ export const AdminDashboard = ({
         <Card>
           <CardContent className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-400">Active Sentinel Alerts</span>
-              <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
+              <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Active Sentinel Alerts</span>
+              <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 dark:text-amber-400">
                 <AlertTriangle className="w-4 h-4" />
               </div>
             </div>
-            <div className="text-2xl font-bold font-mono text-amber-400">
+            <div className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400">
               {metrics.activeAlertsCount}
             </div>
-            <div className="text-xs text-amber-500/90 font-medium">
+            <div className="text-xs text-amber-600 dark:text-amber-400 font-medium">
               OpenAI Circuit Breaker Tripped (429)
             </div>
           </CardContent>
@@ -147,15 +156,15 @@ export const AdminDashboard = ({
         <Card>
           <CardContent className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-400">Monthly Model Spend</span>
-              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+              <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Monthly Model Spend</span>
+              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500 dark:text-emerald-400">
                 <Coins className="w-4 h-4" />
               </div>
             </div>
-            <div className="text-2xl font-bold font-mono text-zinc-50">
+            <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-50">
               ${metrics.estimatedCostUsd.toFixed(2)}
             </div>
-            <div className="text-xs text-emerald-400 font-medium">
+            <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
               +${metrics.savedCostUsd.toFixed(2)} saved via Cosine Cache
             </div>
           </CardContent>
@@ -166,10 +175,10 @@ export const AdminDashboard = ({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-base font-semibold text-zinc-100 tracking-tight">
+            <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 tracking-tight">
               Provider Circuit Breakers (Layer D Resilience)
             </h3>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               Automated 3-failure threshold with 60s cooldown and instant Groq &rarr; Gemini &rarr; OpenAI failover.
             </p>
           </div>
@@ -182,30 +191,30 @@ export const AdminDashboard = ({
             const isOpen = cb.state === 'OPEN';
 
             return (
-              <Card key={cb.provider} className={isOpen ? 'border-rose-500/40 bg-rose-950/10' : ''}>
+              <Card key={cb.provider} className={isOpen ? 'border-rose-500/40 bg-rose-50/50 dark:bg-rose-950/10' : ''}>
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className={`w-2.5 h-2.5 rounded-full ${isClosed ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`} />
-                      <span className="font-bold text-sm text-zinc-100">{cb.provider}</span>
+                      <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">{cb.provider}</span>
                     </div>
                     <Badge variant={isClosed ? 'success' : 'destructive'} size="sm">
                       {cb.state}
                     </Badge>
                   </div>
 
-                  <div className="space-y-1 text-xs text-zinc-400 font-mono">
+                  <div className="space-y-1 text-xs text-zinc-500 dark:text-zinc-400 font-mono">
                     <div className="flex justify-between">
                       <span>Model:</span>
-                      <span className="text-zinc-200">{cb.model}</span>
+                      <span className="text-zinc-700 dark:text-zinc-200">{cb.model}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>P95 Latency:</span>
-                      <span className="text-zinc-200">{cb.p95LatencyMs} ms</span>
+                      <span className="text-zinc-700 dark:text-zinc-200">{cb.p95LatencyMs} ms</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Failures:</span>
-                      <span className={cb.failureCount > 0 ? 'text-rose-400 font-bold' : 'text-zinc-400'}>
+                      <span className={cb.failureCount > 0 ? 'text-rose-500 dark:text-rose-400 font-bold' : 'text-zinc-600 dark:text-zinc-400'}>
                         {cb.failureCount} / 3
                       </span>
                     </div>
@@ -251,12 +260,12 @@ export const AdminDashboard = ({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800">
-              <span className="text-xs text-zinc-400">Cache Hit Rate</span>
-              <div className="text-xl font-bold font-mono text-emerald-400 mt-1">
+            <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Cache Hit Rate</span>
+              <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
                 {metrics.cacheHitRatio}%
               </div>
-              <div className="w-full bg-zinc-800 rounded-full h-1.5 mt-2 overflow-hidden">
+              <div className="w-full bg-zinc-200 dark:bg-zinc-800 rounded-full h-1.5 mt-2 overflow-hidden">
                 <div
                   className="bg-emerald-500 h-1.5 rounded-full"
                   style={{ width: `${metrics.cacheHitRatio}%` }}
@@ -264,20 +273,20 @@ export const AdminDashboard = ({
               </div>
             </div>
 
-            <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800">
-              <span className="text-xs text-zinc-400">Total Tokens Processed</span>
-              <div className="text-xl font-bold font-mono text-zinc-100 mt-1">
+            <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Total Tokens Processed</span>
+              <div className="text-xl font-bold font-mono text-zinc-900 dark:text-zinc-100 mt-1">
                 {(metrics.totalTokens / 1000000).toFixed(2)}M
               </div>
-              <span className="text-[11px] text-zinc-400">Across Groq & Gemini</span>
+              <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Across Groq & Gemini</span>
             </div>
 
-            <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800">
-              <span className="text-xs text-zinc-400">Cost Avoidance</span>
-              <div className="text-xl font-bold font-mono text-amber-400 mt-1">
+            <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Cost Avoidance</span>
+              <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
                 ${metrics.savedCostUsd.toFixed(2)}
               </div>
-              <span className="text-[11px] text-zinc-400">Saved by 0ms local Redis cache</span>
+              <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Saved by 0ms local Redis cache</span>
             </div>
           </div>
         </CardContent>

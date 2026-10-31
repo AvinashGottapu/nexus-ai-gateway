@@ -17,6 +17,7 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '../ui/Table';
 import { Modal } from '../ui/Modal';
+import { postToggleUserStatus, postCreateUser, getLiveUsers } from '../../services/api';
 
 export const UserTable = ({ users, setUsers, onImpersonate }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,27 +52,51 @@ export const UserTable = ({ users, setUsers, onImpersonate }) => {
     setEditingUser(null);
   };
 
-  const handleToggleSuspend = (user) => {
+  const handleToggleSuspend = async (user) => {
     const nextStatus = user.status === 'Active' ? 'Suspended' : 'Active';
+    const isActivating = nextStatus === 'Active';
+    
+    // Call live backend SQLite toggle endpoint
+    try {
+      await postToggleUserStatus(user.id || user.key_hash, isActivating);
+    } catch (e) {
+      console.warn("Could not sync user status toggle to backend:", e);
+    }
+
     setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: nextStatus } : u));
     setSuspendingUser(null);
   };
 
-  const handleCreateUser = (e) => {
+  const handleCreateUser = async (e) => {
     e.preventDefault();
+    const rpm = newUserPlan.includes('Tier-3') ? 100 : newUserPlan.includes('Tier-2') ? 60 : 30;
+    
+    // Call backend to persist real API Key & User into SQLite
+    try {
+      await postCreateUser(newUserName || 'New Developer', 10.0, rpm);
+      const refreshed = await getLiveUsers();
+      if (refreshed.success && refreshed.data) {
+        setUsers(refreshed.data);
+      }
+    } catch (err) {
+      console.warn("Could not sync created user to backend:", err);
+    }
+
     const newUser = {
       id: `usr_${Math.random().toString(16).substring(2, 6)}`,
       name: newUserName,
-      email: newUserEmail,
-      avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=faces',
+      email: newUserEmail || `${newUserName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@techcorp.com`,
+      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(newUserName || 'User')}&background=6366f1&color=fff`,
       role: newUserRole,
       plan: newUserPlan,
       joinedDate: new Date().toISOString().split('T')[0],
+      joined: new Date().toISOString().split('T')[0],
       status: 'Active',
       totalRequests: 0,
-      spendUsd: 0.00
+      spendUsd: 0.00,
+      spentUSD: 0.00
     };
-    setUsers([newUser, ...users]);
+    setUsers(prev => [newUser, ...prev]);
     setIsNewUserModalOpen(false);
     setNewUserName('');
     setNewUserEmail('');
@@ -158,7 +183,7 @@ export const UserTable = ({ users, setUsers, onImpersonate }) => {
                   <TableCell>
                     <div className="flex items-center gap-2.5">
                       <img
-                        src={u.avatarUrl}
+                        src={u.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=6366f1&color=fff`}
                         alt={u.name}
                         className="w-7 h-7 rounded-full object-cover ring-1 ring-zinc-300 dark:ring-zinc-700"
                       />
@@ -177,7 +202,7 @@ export const UserTable = ({ users, setUsers, onImpersonate }) => {
                     <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">{u.plan}</span>
                   </TableCell>
                   <TableCell className="text-xs text-zinc-400 whitespace-nowrap">
-                    {u.joinedDate}
+                    {u.joinedDate || u.joined || '2026-01-15'}
                   </TableCell>
                   <TableCell>
                     <Badge variant={isSuspended ? 'destructive' : 'success'} size="sm" dot={true}>
@@ -185,10 +210,10 @@ export const UserTable = ({ users, setUsers, onImpersonate }) => {
                     </Badge>
                   </TableCell>
                   <TableCell className="font-mono text-xs">
-                    {u.totalRequests.toLocaleString()}
+                    {(u.totalRequests || 0).toLocaleString()}
                   </TableCell>
                   <TableCell className="font-mono text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                    ${u.spendUsd.toFixed(2)}
+                    ${(Number(u.spendUsd ?? u.spentUSD ?? 0)).toFixed(2)}
                   </TableCell>
                   <TableCell className="text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-1.5">

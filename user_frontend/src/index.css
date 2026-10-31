@@ -4,6 +4,9 @@
 
 @layer base {
   * {
+    border-color: theme('colors.zinc.200');
+  }
+  .dark * {
     border-color: theme('colors.zinc.800');
   }
   body {

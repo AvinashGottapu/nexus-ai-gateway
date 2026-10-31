@@ -166,10 +166,10 @@ export const KeyManager = ({ apiKeys, setApiKeys, isModalOpen, setIsModalOpen })
                           {keyItem.name}
                         </span>
                         <Badge
-                          variant={isRevoked ? 'destructive' : keyItem.tier === 'Tier-2' ? 'info' : 'success'}
+                          variant={isRevoked ? 'destructive' : (keyItem.tier === 'Tier-2' ? 'info' : 'success')}
                           size="sm"
                         >
-                          {keyItem.tier} ({keyItem.rpmLimit} RPM)
+                          {keyItem.tier || 'Tier-1'} ({keyItem.rpmLimit ?? keyItem.rpm_limit ?? 60} RPM)
                         </Badge>
                         {isRevoked && (
                           <Badge variant="destructive" size="sm">
@@ -178,7 +178,7 @@ export const KeyManager = ({ apiKeys, setApiKeys, isModalOpen, setIsModalOpen })
                         )}
                       </div>
                       <div className="text-[11px] text-zinc-400 mt-0.5">
-                        Created on {keyItem.createdAt} • Last used {keyItem.lastUsedAt}
+                        Created on {keyItem.createdAt || keyItem.created_at || 'Recently'} • Last used {keyItem.lastUsedAt || 'Never'}
                       </div>
                     </div>
                   </div>
@@ -186,7 +186,7 @@ export const KeyManager = ({ apiKeys, setApiKeys, isModalOpen, setIsModalOpen })
                   <div className="text-right sm:text-right">
                     <span className="text-[11px] text-zinc-400">Balance: </span>
                     <span className="font-mono text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                      ${keyItem.balanceUsd.toFixed(4)}
+                      ${(Number(keyItem.balanceUsd ?? keyItem.balance_usd ?? 0)).toFixed(4)}
                     </span>
                   </div>
                 </div>
@@ -194,7 +194,7 @@ export const KeyManager = ({ apiKeys, setApiKeys, isModalOpen, setIsModalOpen })
                 {/* Key Token Value Row */}
                 <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800">
                   <span className="font-mono text-xs text-zinc-700 dark:text-zinc-300 flex-1 truncate select-all">
-                    {isRevealed && keyItem.rawKey ? keyItem.rawKey : keyItem.keyMasked}
+                    {isRevealed && keyItem.rawKey ? keyItem.rawKey : (keyItem.keyMasked || keyItem.key_masked || 'nexus-sk-••••••••')}
                   </span>
 
                   {keyItem.rawKey && (
@@ -208,7 +208,7 @@ export const KeyManager = ({ apiKeys, setApiKeys, isModalOpen, setIsModalOpen })
                   )}
 
                   <button
-                    onClick={() => handleCopy(keyItem.id, keyItem.rawKey || keyItem.keyMasked)}
+                    onClick={() => handleCopy(keyItem.id, keyItem.rawKey || keyItem.keyMasked || keyItem.key_masked)}
                     disabled={isRevoked}
                     className="p-1.5 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
                     title="Copy Key"
@@ -224,7 +224,7 @@ export const KeyManager = ({ apiKeys, setApiKeys, isModalOpen, setIsModalOpen })
                 {/* Scopes & Actions */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-zinc-100 dark:border-zinc-800/60">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {keyItem.scopes.map((s) => (
+                    {(keyItem.scopes || ['inference:read', 'inference:write']).map((s) => (
                       <span
                         key={s}
                         className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700/50"

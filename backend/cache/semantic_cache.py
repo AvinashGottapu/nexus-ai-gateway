@@ -175,3 +175,21 @@ async def save_to_semantic_cache(
 
     except Exception as e:
         print(f"⚠️ Error saving to semantic cache: {e}")
+
+
+# --- 5. SEMANTIC CACHE CLIENT HELPER ---
+
+class SemanticCacheClient:
+    """Helper client wrapper for semantic cache operations."""
+    async def get(self, prompt: str, threshold: float = SIMILARITY_THRESHOLD):
+        match, _ = await check_semantic_cache(prompt, threshold)
+        return match
+
+    async def set(self, prompt: str, response: str, provider: str = "cache", ttl_seconds: int = DEFAULT_CACHE_TTL):
+        vector = await get_embedding(prompt)
+        await save_to_semantic_cache(prompt, vector, response, provider, ttl_seconds)
+
+
+def get_semantic_cache() -> SemanticCacheClient:
+    return SemanticCacheClient()
+

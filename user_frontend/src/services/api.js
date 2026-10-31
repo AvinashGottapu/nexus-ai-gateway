@@ -7,7 +7,25 @@ export async function getLiveApiKeys() {
     const res = await fetch(`${BACKEND_URL}/v1/keys`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    return { success: true, data };
+    const mapped = (data || []).map(k => {
+      const balance = Number(k.balance_usd ?? k.balanceUsd ?? 5.0);
+      return {
+        id: k.id || (k.key_hash ? k.key_hash.slice(0, 12) : `key-${Math.random().toString(36).substring(7)}`),
+        name: k.name || 'API Key',
+        key_hash: k.key_hash,
+        keyMasked: k.key_masked || k.keyMasked || (k.key_prefix ? `${k.key_prefix}••••••••${(k.key_hash || '').slice(-4)}` : 'sk-live-••••••••'),
+        rawKey: k.raw_key || k.rawKey || null,
+        tier: k.tier || (k.rpm_limit > 100 ? 'Tier-2' : (k.rpm_limit > 10 ? 'Tier-1' : 'Free')),
+        rpmLimit: k.rpm_limit ?? k.rpmLimit ?? 60,
+        balanceUsd: balance,
+        balance_usd: balance,
+        createdAt: k.created_at || k.createdAt || '2026-10-15 08:30:00',
+        lastUsedAt: k.last_used_at || k.lastUsedAt || 'Recently',
+        scopes: Array.isArray(k.scopes) && k.scopes.length > 0 ? k.scopes : ['inference:read', 'inference:write', 'cache:read'],
+        status: k.status || (k.is_active ? 'active' : 'revoked')
+      };
+    });
+    return { success: true, data: mapped };
   } catch (err) {
     console.warn("Backend /v1/keys offline, using local cache:", err.message);
     return { success: false, error: err.message };
@@ -80,18 +98,23 @@ export async function runLiveInference({ prompt, apiKey, model = 'groq' }) {
 
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      const errorMsg = (typeof errJson.detail === 'object' && errJson.detail !== null)
+        ? (errJson.detail.message || errJson.detail.error || JSON.stringify(errJson.detail))
+        : (errJson.detail || errJson.message || `HTTP ${res.status}`);
       return {
         success: false,
         statusCode: res.status,
         latencyMs: elapsed,
-        error: errJson.detail || errJson.message || `Error ${res.status}`
+        error: errorMsg
       };
     }
 
     const data = await res.json();
-    const totalTokens = data.token_usage
-      ? (data.token_usage.prompt_tokens || 0) + (data.token_usage.completion_tokens || 0)
-      : (data.tokens_used || data.total_tokens || 450);
+    const promptTokens = data.token_usage?.prompt_tokens ?? data.prompt_tokens ?? 0;
+    const completionTokens = data.token_usage?.completion_tokens ?? data.completion_tokens ?? 0;
+    const totalTokens = (promptTokens + completionTokens) > 0
+      ? (promptTokens + completionTokens)
+      : (data.token_usage?.total_tokens || data.tokens_used || data.total_tokens || 450);
     const latency = Math.round(data.timings_ms?.total_latency_ms || data.duration_ms || elapsed);
     const cost = data.billing?.cost_usd !== undefined ? data.billing.cost_usd : (data.cost_usd || 0.00012);
     const isHit = Boolean(data.cache?.hit || data.cache_hit || (data.model_used === 'semantic_cache'));
@@ -103,6 +126,9 @@ export async function runLiveInference({ prompt, apiKey, model = 'groq' }) {
       data: {
         content: data.response || data.answer || JSON.stringify(data),
         tokens: totalTokens,
+        promptTokens: promptTokens,
+        completionTokens: completionTokens,
+        latencyMs: latency,
         costUsd: cost,
         isCacheHit: isHit,
         model: data.provider || data.model_used || model,

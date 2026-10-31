@@ -77,7 +77,20 @@ async def classify_intent(prompt: str) -> IntentClassification:
         ])
         return result
     except Exception as e:
-        print(f"⚠️ Intent classification warning ({e}), falling back to general.")
+        print(f"⚠️ Intent classification warning ({e}), checking deterministic fallback.")
+        p_lower = prompt.lower()
+        if any(w in p_lower for w in ["transfer", "wire money", "escrow", "delete account", "drop table", "truncate", "payout"]):
+            return IntentClassification(
+                category=IntentCategory.HIGH_RISK,
+                confidence=0.95,
+                reasoning="Deterministic rule flagged high-risk financial or destructive mutation."
+            )
+        if any(w in p_lower for w in ["policy", "warranty", "manual", "return policy", "documentation"]):
+            return IntentClassification(
+                category=IntentCategory.RAG,
+                confidence=0.85,
+                reasoning="Deterministic rule flagged knowledge retrieval intent."
+            )
         return IntentClassification(
             category=IntentCategory.GENERAL,
             confidence=0.5,

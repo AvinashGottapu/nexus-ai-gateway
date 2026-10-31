@@ -12,7 +12,8 @@ import {
   Moon,
   ChevronDown,
   AlertTriangle,
-  CreditCard
+  CreditCard,
+  Award
 } from 'lucide-react';
 import { Badge } from './components/ui/Badge';
 
@@ -24,6 +25,7 @@ import { HITLQueue } from './components/admin/HITLQueue';
 import { AuditLogs } from './components/admin/AuditLogs';
 import { SystemSettings } from './components/admin/SystemSettings';
 import { PaymentsManager } from './components/admin/PaymentsManager';
+import { EvaluationStudio } from './components/admin/EvaluationStudio';
 
 // Mock Data
 import {
@@ -33,7 +35,7 @@ import {
   INITIAL_AUDIT_LOGS,
   SYSTEM_METRICS
 } from './data/mockData';
-import { getLiveCircuitBreakers, getLiveObservabilityMetrics, getLiveHitlTickets } from './services/api';
+import { getLiveCircuitBreakers, getLiveObservabilityMetrics, getLiveHitlTickets, getLiveUsers } from './services/api';
 
 export function App() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -84,6 +86,12 @@ export function App() {
         setHitlTickets(res.data);
       }
     });
+
+    getLiveUsers().then(res => {
+      if (res.success && res.data && res.data.length > 0) {
+        setUsers(res.data);
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -98,6 +106,7 @@ export function App() {
 
   const navItems = [
     { id: 'overview', label: 'System Overview', icon: LayoutDashboard },
+    { id: 'evals', label: 'Evals & Benchmarks', icon: Award, badge: 'Live', badgeVariant: 'success' },
     { id: 'payments', label: 'All Payments & Ledger', icon: CreditCard },
     { id: 'users', label: 'User Directory', icon: Users },
     { id: 'observability', label: 'Gateway Observability', icon: Activity },
@@ -113,27 +122,27 @@ export function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans transition-colors duration-150">
+    <div className="h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex flex-col font-sans transition-colors duration-150 overflow-hidden">
       {/* Admin Top Bar */}
-      <header className="sticky top-0 z-40 w-full h-14 bg-zinc-950/95 backdrop-blur-md border-b border-zinc-800 px-4 flex items-center justify-between select-none">
+      <header className="shrink-0 z-40 w-full h-14 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800 px-4 flex items-center justify-between select-none">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-xs">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-500 dark:text-amber-400 shadow-xs">
               <ShieldAlert className="w-4 h-4" />
             </div>
             <div className="flex items-baseline gap-1.5">
-              <span className="font-bold text-sm tracking-tight text-zinc-100">
+              <span className="font-bold text-sm tracking-tight text-zinc-900 dark:text-zinc-100">
                 NEXUS
               </span>
-              <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded-sm bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded-sm bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                 Operations Console
               </span>
             </div>
           </div>
 
-          <div className="hidden md:block h-4 w-[1px] bg-zinc-800" />
+          <div className="hidden md:block h-4 w-[1px] bg-zinc-200 dark:bg-zinc-800" />
 
-          <div className="hidden lg:flex items-center gap-1.5 text-xs text-zinc-400 font-mono">
+          <div className="hidden lg:flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 font-mono">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             <span>Cluster: ap-south-1 (Mumbai)</span>
           </div>
@@ -148,23 +157,23 @@ export function App() {
           <button
             onClick={toggleTheme}
             aria-label="Toggle theme"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 transition-colors"
+            className="p-1.5 rounded-lg text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
           >
-            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-400" />}
+            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
           </button>
 
           {/* Admin Avatar */}
           <div className="flex items-center gap-2 pl-2">
             <img
-              src={currentAdmin.avatarUrl}
-              alt={currentAdmin.name}
+              src={currentAdmin?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=faces'}
+              alt={currentAdmin?.name || 'Admin'}
               className="w-7 h-7 rounded-full object-cover ring-1 ring-amber-500/40"
             />
             <div className="hidden md:block text-left">
-              <div className="text-xs font-semibold text-zinc-100 leading-tight">
-                {currentAdmin.name}
+              <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 leading-tight">
+                {currentAdmin?.name || 'Avinash Gottapu'}
               </div>
-              <div className="text-[10px] text-amber-400 leading-tight font-medium">
+              <div className="text-[10px] text-amber-600 dark:text-amber-400 leading-tight font-medium">
                 Cluster Administrator
               </div>
             </div>
@@ -175,16 +184,16 @@ export function App() {
       {/* Main Shell */}
       <div className="flex-1 flex overflow-hidden">
         {/* Admin Sidebar */}
-        <aside className="w-64 shrink-0 border-r border-zinc-800 bg-zinc-950/80 flex flex-col justify-between p-3 select-none">
+        <aside className="w-64 shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950/90 flex flex-col justify-between p-3 select-none overflow-y-auto">
           <div className="space-y-4">
-            <div className="px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-between">
+            <div className="px-3 py-2 rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">
+                <span className="text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
                   Operations Console
                 </span>
               </div>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-400">
                 ADMIN
               </span>
             </div>
@@ -199,12 +208,12 @@ export function App() {
                     onClick={() => setActiveTab(item.id)}
                     className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${
                       isActive
-                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold'
-                        : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900/80'
+                        ? 'bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-semibold shadow-xs'
+                        : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-900/80'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <Icon className={`w-4 h-4 ${isActive ? 'text-amber-400' : 'text-zinc-400'}`} />
+                      <Icon className={`w-4 h-4 ${isActive ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-400'}`} />
                       <span>{item.label}</span>
                     </div>
                     {item.badge !== undefined && item.badge !== null && (
@@ -218,18 +227,18 @@ export function App() {
             </nav>
           </div>
 
-          <div className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 space-y-2">
+          <div className="p-3 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-2 mt-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-200">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-800 dark:text-zinc-200">
                 <Server className="w-3.5 h-3.5 text-amber-500" />
                 <span>Sentinel Supervisor</span>
               </div>
-              <span className="text-[10px] font-mono text-zinc-400">Active</span>
+              <span className="text-[10px] font-mono text-zinc-500 dark:text-zinc-400">Active</span>
             </div>
-            <div className="text-[11px] text-zinc-400 leading-tight">
+            <div className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-tight">
               Circuit breakers, failover cascades, and backups armed.
             </div>
-            <div className="pt-1 flex items-center gap-2 text-[10px] text-emerald-400 font-medium">
+            <div className="pt-1 flex items-center gap-2 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
               <Zap className="w-3 h-3" />
               <span>Port 443 Upstash REST</span>
             </div>
@@ -245,6 +254,9 @@ export function App() {
               setCircuitBreakers={setCircuitBreakers}
               setActiveTab={setActiveTab}
             />
+          )}
+          {activeTab === 'evals' && (
+            <EvaluationStudio />
           )}
           {activeTab === 'payments' && (
             <PaymentsManager />

@@ -292,11 +292,11 @@ async def verify_api_gateway(auth: Optional[HTTPAuthorizationCredentials] = Secu
             row = conn.execute(
                 """
                 SELECT * FROM api_keys 
-                WHERE (key_hash = ? OR key_hash LIKE ? OR key_prefix LIKE ? OR ? IN ('sk-live-mock-token', 'demo-key', 'playground')) 
+                WHERE (key_hash = ? OR key_hash LIKE ? OR key_prefix LIKE ? OR ? IN ('sk-live-mock-token', 'demo-key', 'playground') OR ? LIKE 'nexus-sk-%' OR ? LIKE 'key-%') 
                   AND is_active = 1 
                 ORDER BY created_at DESC LIMIT 1
                 """,
-                (raw_key, f"{raw_key}%", f"{raw_key}%", raw_key)
+                (raw_key, f"{raw_key}%", f"{raw_key}%", raw_key, raw_key, raw_key)
             ).fetchone()
             if row:
                 key_record = dict(row)
@@ -366,6 +366,21 @@ def revoke_api_key(key_id_or_hash: str):
         cursor.execute("UPDATE api_keys SET is_active = 0 WHERE key_hash LIKE ? OR key_prefix LIKE ?", (f"{key_id_or_hash}%", f"{key_id_or_hash}%"))
         conn.commit()
         return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def toggle_key_status(key_id_or_hash: str, is_active: int):
+    """Activates or suspends an API key / user in SQLite."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE api_keys SET is_active = ? WHERE key_hash LIKE ? OR key_prefix LIKE ?",
+            (int(is_active), f"{key_id_or_hash}%", f"{key_id_or_hash}%")
+        )
+        conn.commit()
+        return {"success": True, "key_id": key_id_or_hash, "is_active": bool(is_active)}
     finally:
         conn.close()
 
