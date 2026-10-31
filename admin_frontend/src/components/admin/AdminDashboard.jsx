@@ -23,7 +23,8 @@ export const AdminDashboard = ({
   metrics,
   circuitBreakers,
   setCircuitBreakers,
-  setActiveTab
+  setActiveTab,
+  isLoadingMetrics = false
 }) => {
   const [isResetting, setIsResetting] = useState(false);
   const [actionNotice, setActionNotice] = useState(null);
@@ -125,9 +126,16 @@ export const AdminDashboard = ({
                 <Clock className="w-4 h-4" />
               </div>
             </div>
-            <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
-              {metrics.p95LatencyMs} <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">ms</span>
-            </div>
+            {isLoadingMetrics || metrics.p95LatencyMs === null || metrics.p95LatencyMs === undefined ? (
+              <div className="flex items-center gap-2 py-1">
+                <div className="h-7 w-20 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse" />
+                <span className="text-xs text-zinc-400 font-mono">syncing...</span>
+              </div>
+            ) : (
+              <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                {metrics.p95LatencyMs} <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">ms</span>
+              </div>
+            )}
             <div className="text-xs text-zinc-500 dark:text-zinc-400">
               Sub-40ms on Redis Semantic Cache Hits
             </div>

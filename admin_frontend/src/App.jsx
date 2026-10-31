@@ -47,6 +47,7 @@ export function App() {
   const [hitlTickets, setHitlTickets] = useState(INITIAL_HITL_TICKETS);
   const [auditLogs, setAuditLogs] = useState(INITIAL_AUDIT_LOGS);
   const [systemMetrics, setSystemMetrics] = useState(SYSTEM_METRICS);
+  const [isLoadingMetrics, setIsLoadingMetrics] = useState(true);
 
   const pendingHitlCount = hitlTickets.filter(t => t.status === 'Pending').length;
   const currentAdmin = users[0]; // Avinash Gottapu (Admin)
@@ -69,23 +70,27 @@ export function App() {
       }
     });
 
-    getLiveObservabilityMetrics().then(res => {
-      if (res.success && res.data) {
-        const liveP95 = res.data.latency?.p95_ms ?? res.data.p95_latency_ms;
-        const liveTokens = res.data.consumption?.total_tokens ?? res.data.total_tokens;
-        const liveSpend = res.data.consumption?.total_spend_usd ?? res.data.total_spend_usd;
-        const liveHitRatio = res.data.cache_hit_ratio_percent ?? (res.data.cache_hit_ratio ? parseFloat(res.data.cache_hit_ratio) : null);
+    getLiveObservabilityMetrics()
+      .then(res => {
+        if (res.success && res.data) {
+          const liveP95 = res.data.latency?.p95_ms ?? res.data.p95_latency_ms;
+          const liveTokens = res.data.consumption?.total_tokens ?? res.data.total_tokens;
+          const liveSpend = res.data.consumption?.total_spend_usd ?? res.data.total_spend_usd;
+          const liveHitRatio = res.data.cache_hit_ratio_percent ?? (res.data.cache_hit_ratio ? parseFloat(res.data.cache_hit_ratio) : null);
 
-        setSystemMetrics(prev => ({
-          ...prev,
-          totalRequests: res.data.total_requests !== undefined ? res.data.total_requests : prev.totalRequests,
-          p95LatencyMs: (liveP95 !== undefined && liveP95 > 0) ? Math.round(liveP95) : prev.p95LatencyMs,
-          totalTokens: liveTokens !== undefined && liveTokens > 0 ? liveTokens : prev.totalTokens,
-          estimatedCostUsd: liveSpend !== undefined && liveSpend > 0 ? liveSpend : prev.estimatedCostUsd,
-          cacheHitRatio: liveHitRatio !== null ? liveHitRatio : prev.cacheHitRatio
-        }));
-      }
-    });
+          setSystemMetrics(prev => ({
+            ...prev,
+            totalRequests: res.data.total_requests !== undefined ? res.data.total_requests : prev.totalRequests,
+            p95LatencyMs: (liveP95 !== undefined && liveP95 > 0) ? Math.round(liveP95) : null,
+            totalTokens: liveTokens !== undefined && liveTokens > 0 ? liveTokens : prev.totalTokens,
+            estimatedCostUsd: liveSpend !== undefined && liveSpend > 0 ? liveSpend : prev.estimatedCostUsd,
+            cacheHitRatio: liveHitRatio !== null ? liveHitRatio : prev.cacheHitRatio
+          }));
+        }
+      })
+      .finally(() => {
+        setIsLoadingMetrics(false);
+      });
 
     getLiveHitlTickets().then(res => {
       if (res.success && res.data && res.data.length > 0) {
@@ -259,6 +264,7 @@ export function App() {
               circuitBreakers={circuitBreakers}
               setCircuitBreakers={setCircuitBreakers}
               setActiveTab={setActiveTab}
+              isLoadingMetrics={isLoadingMetrics}
             />
           )}
           {activeTab === 'evals' && (
@@ -277,6 +283,7 @@ export function App() {
             <ObservabilityMetrics
               metrics={systemMetrics}
               circuitBreakers={circuitBreakers}
+              isLoadingMetrics={isLoadingMetrics}
             />
           )}
           {activeTab === 'hitl' && (

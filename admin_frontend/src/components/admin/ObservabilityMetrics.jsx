@@ -12,7 +12,7 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 
-export const ObservabilityMetrics = ({ metrics, circuitBreakers }) => {
+export const ObservabilityMetrics = ({ metrics, circuitBreakers, isLoadingMetrics = false }) => {
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       <div>
@@ -37,7 +37,11 @@ export const ObservabilityMetrics = ({ metrics, circuitBreakers }) => {
         <Card>
           <CardContent className="space-y-1.5">
             <span className="text-xs font-semibold text-zinc-400">P95 Latency (95th Percentile)</span>
-            <div className="text-2xl font-bold font-mono text-indigo-400">{metrics.p95LatencyMs} ms</div>
+            {isLoadingMetrics || metrics.p95LatencyMs === null || metrics.p95LatencyMs === undefined ? (
+              <div className="h-8 w-24 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse my-1" />
+            ) : (
+              <div className="text-2xl font-bold font-mono text-indigo-400">{metrics.p95LatencyMs} ms</div>
+            )}
             <p className="text-[11px] text-zinc-400">Rolling 3600-second window in Upstash</p>
           </CardContent>
         </Card>

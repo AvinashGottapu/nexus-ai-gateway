@@ -325,7 +325,7 @@ export const INITIAL_AUDIT_LOGS = [
 export const SYSTEM_METRICS = {
   totalRequests: 28410,
   cacheHitRatio: 41.8,
-  p95LatencyMs: 385,
+  p95LatencyMs: null,
   totalTokens: 14290320,
   estimatedCostUsd: 12.84,
   savedCostUsd: 8.92,
