@@ -147,6 +147,111 @@ export async function runLiveInference({ prompt, apiKey, model = 'groq' }) {
   }
 }
 
+// --- FEATURE 2: REAL-TIME SSE TOKEN STREAMING ---
+
+export async function runLiveStreamingInference({
+  prompt,
+  apiKey,
+  model = 'groq',
+  onToken,
+  onFirstToken,
+  onComplete,
+  onError
+}) {
+  const startTime = performance.now();
+  let provider = 'groq';
+  if (model.includes('gpt-oss') || model.includes('groq') || model.includes('llama')) {
+    provider = 'groq';
+  } else if (model.includes('gemini')) {
+    provider = 'gemini';
+  } else if (model.includes('gpt-4') || model === 'openai') {
+    provider = 'openai';
+  }
+
+  try {
+    const res = await fetch(`${BACKEND_URL}/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({ prompt, provider }),
+      signal: AbortSignal.timeout(60000)
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      const errorMsg = (typeof errJson.detail === 'object' && errJson.detail !== null)
+        ? (errJson.detail.message || errJson.detail.error || JSON.stringify(errJson.detail))
+        : (errJson.detail || errJson.message || `HTTP ${res.status}`);
+      if (onError) onError(errorMsg, res.status);
+      return { success: false, error: errorMsg, statusCode: res.status };
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let accumulatedText = '';
+    let firstTokenReported = false;
+    let finalMetadata = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          const jsonStr = trimmed.slice(6);
+          try {
+            const data = JSON.parse(jsonStr);
+
+            if (!firstTokenReported && data.ttft_ms) {
+              firstTokenReported = true;
+              if (onFirstToken) onFirstToken(data.ttft_ms);
+            }
+
+            if (data.token) {
+              accumulatedText += data.token;
+              if (onToken) onToken(data.token, accumulatedText, data);
+            }
+
+            if (data.done) {
+              finalMetadata = data;
+            }
+          } catch (e) {
+            // Partial chunk
+          }
+        }
+      }
+    }
+
+    const totalElapsed = Math.round(performance.now() - startTime);
+    const summary = {
+      content: accumulatedText,
+      latencyMs: finalMetadata?.total_latency_ms || totalElapsed,
+      ttftMs: finalMetadata?.ttft_ms || 0,
+      tokens: finalMetadata?.total_tokens || Math.max(1, Math.round(accumulatedText.length / 4)),
+      costUsd: finalMetadata?.cost_usd || 0.0001,
+      isCacheHit: Boolean(finalMetadata?.cache_hit),
+      providerUsed: finalMetadata?.provider || provider,
+      traceId: finalMetadata?.trace_id || null,
+      failoverTriggered: Boolean(finalMetadata?.failover_triggered)
+    };
+
+    if (onComplete) onComplete(summary);
+    return { success: true, data: summary };
+  } catch (err) {
+    if (onError) onError(err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+
 export async function getLiveTelemetry() {
   try {
     const res = await fetch(`${BACKEND_URL}/v1/observability/metrics`, { signal: AbortSignal.timeout(3000) });

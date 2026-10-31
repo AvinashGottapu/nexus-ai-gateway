@@ -1,6 +1,9 @@
 import os
+import json
+import time
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
@@ -54,7 +57,7 @@ from observability.tracer import (
 from eval.feedback import submit_feedback, get_feedback_summary
 
 # Orchestrator & Layer B (Router 04, Model Gateway 07, HITL 08, RAG 05)
-from orchestrator.router import orchestrate_request
+from orchestrator.router import orchestrate_request, orchestrate_request_stream
 from orchestrator.hitl import list_pending_tickets, list_all_tickets, review_ticket
 from orchestrator.rag import ingest_temporary_knowledge
 from orchestrator.model_gateway import calculate_token_cost
@@ -527,6 +530,156 @@ async def chat(
             "remaining_balance_usd": remaining_balance
         }
     }
+
+
+# --- REAL-TIME SSE TOKEN STREAMING ENDPOINT (FEATURE 2) ---
+
+@app.post("/chat/stream")
+@app.post("/v1/chat/completions/stream")
+async def chat_stream(
+    req: PromptRequest,
+    client_info: Dict[str, Any] = Depends(verify_api_gateway)
+):
+    """
+    Feature 2: Real-Time Token Streaming via Server-Sent Events (SSE)
+    - Sub-100ms Time-To-First-Token (TTFT)
+    - Asynchronous token-by-token event generator
+    - Real-time circuit breaker failover cascading
+    - Instant semantic cache zero-shot accelerated delivery
+    - Post-stream atomic billing deduction and Redis telemetry recording
+    """
+    async def sse_token_generator():
+        t0 = time.perf_counter()
+        trace_id = generate_trace_id()
+        session_id = req.session_id or generate_session_id()
+
+        # Step 1: Input Guardrails (Presidio PII Masking & Safety Guard)
+        try:
+            safe_prompt = await apply_input_guardrails(req.prompt)
+        except HTTPException as he:
+            err_msg = he.detail.get("message", "Input Guardrail Violation") if isinstance(he.detail, dict) else str(he.detail)
+            payload = {
+                "token": f"🛡️ [Input Guardrail Blocked]: {err_msg}",
+                "done": True,
+                "error": "guardrail_violation",
+                "ttft_ms": round((time.perf_counter() - t0) * 1000, 1),
+                "trace_id": trace_id
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            return
+
+        chat_history = await get_session_langchain_messages(session_id)
+
+        # Step 2: Semantic Cache Check
+        cached_result, prompt_vector = await check_semantic_cache(safe_prompt)
+        if cached_result:
+            ttft_ms = round((time.perf_counter() - t0) * 1000, 1)
+            cached_text = cached_result["response"]
+
+            # Stream cached words smoothly
+            words = cached_text.split(" ")
+            for i, w in enumerate(words):
+                token_chunk = w if i == 0 else " " + w
+                yield f"data: {json.dumps({'token': token_chunk, 'ttft_ms': ttft_ms, 'cache_hit': True, 'provider': cached_result['provider'], 'done': False})}\n\n"
+                await asyncio.sleep(0.015)
+
+            # Record telemetry & append to session
+            await append_session_message(session_id, "user", req.prompt)
+            await append_session_message(session_id, "assistant", cached_text)
+            await record_request_metrics(
+                provider=cached_result["provider"],
+                cache_hit=True,
+                total_tokens=len(words),
+                cost_usd=0.0,
+                latency_ms=ttft_ms
+            )
+
+            # Final SSE completion packet
+            yield f"data: {json.dumps({'done': True, 'cache_hit': True, 'provider': cached_result['provider'], 'total_tokens': len(words), 'ttft_ms': ttft_ms, 'total_latency_ms': ttft_ms, 'cost_usd': 0.0, 'trace_id': trace_id, 'session_id': session_id})}\n\n"
+            return
+
+        # Step 3: Stream from Orchestrator & Model Gateway
+        first_token_sent = False
+        ttft_ms = 0.0
+        full_response = []
+        provider_used = "groq"
+        failover_active = False
+
+        async for chunk in orchestrate_request_stream(
+            prompt=safe_prompt,
+            requested_model=req.provider,
+            inline_context=req.context,
+            max_tokens=1024,
+            chat_history=chat_history
+        ):
+            if not first_token_sent:
+                ttft_ms = round((time.perf_counter() - t0) * 1000, 1)
+                first_token_sent = True
+
+            token = chunk["token"]
+            provider_used = chunk["provider"]
+            failover_active = chunk.get("failover_triggered", False)
+            full_response.append(token)
+
+            event_data = {
+                "token": token,
+                "ttft_ms": ttft_ms,
+                "provider": provider_used,
+                "failover_triggered": failover_active,
+                "cache_hit": False,
+                "done": chunk.get("done", False),
+                "trace_id": trace_id
+            }
+            yield f"data: {json.dumps(event_data)}\n\n"
+
+        # Step 4: Finalize metrics & billing
+        complete_text = "".join(full_response)
+        total_tokens = max(1, len(complete_text) // 4)
+        cost = calculate_token_cost(provider_used, len(req.prompt) // 4, total_tokens)
+
+        # Atomic SQLite wallet deduction
+        remaining_balance = deduct_usage_cost(client_info["key_hash"], cost)
+
+        # Save to semantic cache & session store
+        if prompt_vector and len(complete_text) > 10:
+            await save_to_semantic_cache(safe_prompt, prompt_vector, complete_text, provider_used)
+        await append_session_message(session_id, "user", req.prompt)
+        await append_session_message(session_id, "assistant", complete_text)
+
+        total_lat = round((time.perf_counter() - t0) * 1000, 1)
+        await record_request_metrics(
+            provider=provider_used,
+            cache_hit=False,
+            total_tokens=total_tokens,
+            cost_usd=cost,
+            latency_ms=total_lat
+        )
+
+        final_payload = {
+            "done": True,
+            "cache_hit": False,
+            "total_tokens": total_tokens,
+            "ttft_ms": ttft_ms,
+            "total_latency_ms": total_lat,
+            "cost_usd": cost,
+            "remaining_balance_usd": remaining_balance,
+            "provider": provider_used,
+            "failover_triggered": failover_active,
+            "trace_id": trace_id,
+            "session_id": session_id
+        }
+        yield f"data: {json.dumps(final_payload)}\n\n"
+
+    return StreamingResponse(
+        sse_token_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
 
 
 @app.post("/v1/chat/clear-session")

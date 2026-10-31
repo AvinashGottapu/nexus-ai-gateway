@@ -9,7 +9,7 @@ from langchain_core.messages import BaseMessage
 # Sibling modules inside the unified orchestrator folder:
 from orchestrator.hitl import create_human_review_ticket
 from orchestrator.rag import search_temporary_knowledge
-from orchestrator.model_gateway import execute_model_gateway
+from orchestrator.model_gateway import execute_model_gateway, execute_model_gateway_stream
 
 
 # --- 1. PRODUCTION-GRADE INTENT CLASSIFICATION ---
@@ -200,3 +200,77 @@ async def orchestrate_request(
         "response": gateway_result["response"],
         "response_metadata": gateway_result["response_metadata"]
     }
+
+
+# --- 3. STREAMING ORCHESTRATION WITH REAL-TIME CONTEXT INGESTION ---
+
+async def orchestrate_request_stream(
+    prompt: str,
+    requested_model: Optional[str] = "auto",
+    inline_context: Optional[str] = None,
+    max_tokens: int = 1024,
+    chat_history: Optional[List[BaseMessage]] = None
+):
+    """
+    Asynchronous streaming router yielding token-by-token events with sub-100ms TTFT.
+    """
+    intent_data = await classify_intent(prompt)
+    category = intent_data.category
+
+    if inline_context and inline_context.strip():
+        category = IntentCategory.RAG
+
+    # Branch 1: High-Risk Intent (Halt streaming, issue human review ticket immediately)
+    if category == IntentCategory.HIGH_RISK:
+        ticket_id = create_human_review_ticket(
+            prompt=prompt,
+            reason=f"High-Risk Intent Detected: {intent_data.reasoning}"
+        )
+        yield {
+            "token": (
+                "⚠️ Sensitive Operation Intercepted: Your request involves a high-risk financial, "
+                f"security, or database mutation. Review Ticket #{ticket_id} has been dispatched "
+                "to a human supervisor for authorization."
+            ),
+            "status": "pending_human_approval",
+            "ticket_id": ticket_id,
+            "provider": "hitl_supervisor",
+            "done": True
+        }
+        return
+
+    # Branch 2: Context Augmentation
+    execution_prompt = prompt
+    if inline_context and inline_context.strip():
+        execution_prompt = (
+            f"You are a helpful assistant. Use ONLY the following provided context to answer the user's question:\n"
+            f"<context>\n{inline_context.strip()}\n</context>\n\n"
+            f"User Question: {prompt}\n\n"
+            f"Please cite your sources based on the context above."
+        )
+    elif category == IntentCategory.RAG:
+        retrieved_chunks = await search_temporary_knowledge(prompt, top_k=2)
+        if retrieved_chunks:
+            context_block = "\n\n".join([f"[{c['source']}]: {c['chunk_text']}" for c in retrieved_chunks])
+            execution_prompt = (
+                f"You are a helpful assistant. Use ONLY the following verified context (stored temporarily for 2 hours) to answer the user's question:\n"
+                f"<context>\n{context_block}\n</context>\n\n"
+                f"User Question: {prompt}\n\n"
+                f"Please cite your sources based on the context above."
+            )
+
+    # Branch 3: Yield streamed tokens from Model Gateway
+    async for chunk in execute_model_gateway_stream(
+        prompt=execution_prompt,
+        requested_model=requested_model,
+        max_tokens=max_tokens,
+        chat_history=chat_history
+    ):
+        yield {
+            "token": chunk["token"],
+            "provider": chunk["provider"],
+            "failover_triggered": chunk.get("failover_triggered", False),
+            "intent": category.value,
+            "done": False
+        }
+

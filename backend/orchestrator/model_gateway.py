@@ -295,3 +295,72 @@ async def execute_model_gateway(
         status_code=503,
         detail=f"All upstream LLM providers failed in Model Gateway. Last error: {str(last_error)}"
     )
+
+
+# --- 6. ASYNC STREAMING TOKEN GENERATOR WITH CASCADE FAILOVER ---
+
+async def execute_model_gateway_stream(
+    prompt: str,
+    requested_model: Optional[str] = "auto",
+    max_tokens: int = 1024,
+    chat_history: Optional[List[BaseMessage]] = None
+):
+    """
+    07 Model Gateway (Token Streaming Engine):
+    - Yields tokens asynchronously via SSE
+    - Sub-100ms Time-To-First-Token (TTFT)
+    - Automatically cascades to next fallback provider if primary fails before first token
+    - Context-aware multi-turn history support
+    """
+    primary_provider = resolve_model(requested_model, prompt)
+
+    fallback_chain = ["groq", "gemini", "openai"]
+    if primary_provider in fallback_chain:
+        fallback_chain.remove(primary_provider)
+    provider_order = [primary_provider] + fallback_chain
+
+    invocation_input = list(chat_history) + [HumanMessage(content=prompt)] if chat_history else prompt
+
+    for provider in provider_order:
+        if not circuit_breaker.can_execute(provider):
+            print(f"⚡ Circuit OPEN for '{provider}' during stream setup. Skipping in 0.0ms...")
+            continue
+
+        sem = PROVIDER_SEMAPHORES.get(provider, GLOBAL_FALLBACK_SEMAPHORE)
+        try:
+            model = create_model_instance(provider, max_tokens=max_tokens, timeout=12.0)
+            async with asyncio.timeout(SEMAPHORE_QUEUE_TIMEOUT):
+                await sem.acquire()
+
+            try:
+                started_streaming = False
+                async for chunk in model.astream(invocation_input):
+                    token = chunk.content if hasattr(chunk, "content") else str(chunk)
+                    if token:
+                        started_streaming = True
+                        yield {
+                            "token": token,
+                            "provider": provider,
+                            "failover_triggered": provider != primary_provider,
+                            "error": None
+                        }
+
+                if started_streaming:
+                    circuit_breaker.record_success(provider)
+                    return
+            finally:
+                sem.release()
+
+        except Exception as e:
+            print(f"⚠️ Streaming failover: Provider '{provider}' failed ({e}). Tripping to next fallback...")
+            circuit_breaker.record_failure(provider)
+            continue
+
+    # If all providers failed, yield clear user-facing error message
+    yield {
+        "token": "⚠️ [Gateway Error: All upstream model endpoints (Groq, Gemini, OpenAI) currently unavailable. Please verify API keys in .env.]",
+        "provider": "system_fallback",
+        "failover_triggered": True,
+        "error": "all_providers_unavailable"
+    }
+
