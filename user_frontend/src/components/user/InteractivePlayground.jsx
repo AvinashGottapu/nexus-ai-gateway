@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Send,
   Zap,
@@ -30,6 +30,25 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamedText, setStreamedText] = useState('');
   const [ttftMs, setTtftMs] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  // Auto-scroll ref to keep complete streamed content in view
+  const outputBoxRef = useRef(null);
+
+  useEffect(() => {
+    if (outputBoxRef.current && (isStreaming || streamedText)) {
+      outputBoxRef.current.scrollTop = outputBoxRef.current.scrollHeight;
+    }
+  }, [streamedText, isStreaming]);
+
+  const handleCopy = () => {
+    const text = streamedText || result?.content || '';
+    if (text) {
+      navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   // Automatically sync selectedKeyId whenever live apiKeys loads/updates
   useEffect(() => {
@@ -42,8 +61,10 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
   }, [apiKeys, selectedKeyId]);
 
   const presets = [
+    { label: 'Auto: Coding Fast', text: 'Write a Python FastAPI Redis client with connection pooling and retries.' },
+    { label: 'Auto: Reasoning & Math', text: 'Solve step-by-step: If a plane flies 500 mph with a 50 mph headwind for 2 hours, what is its ground distance covered?' },
+    { label: 'Auto: Conversational / Fast', text: 'Give me 3 interesting facts about ancient Rome in 2 short bullet points.' },
     { label: 'Cache Hit Test (Shoe Policy)', text: 'What is the return policy for footwear within 30 days?' },
-    { label: 'Python Async Redis Script', text: 'Write a Python FastAPI Redis client with automatic retries.' },
     { label: 'PII Masking Test', text: 'My name is John Doe and my email is john.doe@acme.com. Please review my account.' }
   ];
 
@@ -320,18 +341,28 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
           <Card className="h-full flex flex-col justify-between">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Gateway Output & Live Telemetry</CardTitle>
-              {(result || isStreaming) && (
-                <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5">
+                {((isStreaming && streamedText) || result?.content) && (
+                  <button
+                    onClick={handleCopy}
+                    className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 transition-colors"
+                    title="Copy response to clipboard"
+                  >
+                    {copied ? <CheckCircle2 className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 text-zinc-400" />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                )}
+                {(result || isStreaming) && (
                   <Badge variant={isStreaming ? 'warning' : (result?.isLive ? 'success' : 'neutral')} size="sm">
                     {isStreaming ? '⚡ STREAMING' : (result?.isLive ? '🟢 LIVE GATEWAY' : '🟡 OFFLINE')}
                   </Badge>
-                  {result?.isCacheHit && (
-                    <Badge variant="success" size="sm">
-                      ⚡ CACHE HIT
-                    </Badge>
-                  )}
-                </div>
-              )}
+                )}
+                {result?.isCacheHit && (
+                  <Badge variant="success" size="sm">
+                    ⚡ CACHE HIT
+                  </Badge>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-4 flex-1">
               {!result && !isLoading && !isStreaming && (
@@ -394,8 +425,24 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
                     </div>
                   </div>
 
-                  {/* Content Box with Live Animated Cursor */}
-                  <div className="p-3.5 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800 text-xs text-zinc-800 dark:text-zinc-200 font-sans leading-relaxed whitespace-pre-wrap max-h-72 overflow-y-auto">
+                  {/* Intelligent Router SLA & Cost Savings Badge */}
+                  {result?.savingsBadge && (
+                    <div className="p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs flex items-center justify-between animate-in fade-in">
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span className="font-medium text-zinc-100">{result.savingsBadge}</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono shrink-0">
+                        {result?.subIntent ? result.subIntent.toUpperCase() : 'AUTO-ROUTED'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Content Box with Live Animated Cursor & Expanded Scroll Window */}
+                  <div
+                    ref={outputBoxRef}
+                    className="p-3.5 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800 text-xs text-zinc-800 dark:text-zinc-200 font-sans leading-relaxed whitespace-pre-wrap min-h-[240px] max-h-[520px] overflow-y-auto scroll-smooth"
+                  >
                     {isStreaming ? (
                       <span>
                         {streamedText}
@@ -409,6 +456,14 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
                         .replace(/<NRP>/g, 'Indian')
                     )}
                   </div>
+
+                  {/* Complete Output Token & Scroll Indicator */}
+                  {((result?.tokens > 150) || (streamedText.length > 500)) && (
+                    <div className="flex items-center justify-between text-[11px] text-zinc-500 px-1 pt-0.5">
+                      <span>✓ Complete response ({result?.tokens ?? Math.round(streamedText.length / 4)} tokens)</span>
+                      <span>↕ Scroll to view all content</span>
+                    </div>
+                  )}
 
                   {result?.isCacheHit && (
                     <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">

@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import asyncio
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import StreamingResponse
@@ -57,7 +58,7 @@ from observability.tracer import (
 from eval.feedback import submit_feedback, get_feedback_summary
 
 # Orchestrator & Layer B (Router 04, Model Gateway 07, HITL 08, RAG 05)
-from orchestrator.router import orchestrate_request, orchestrate_request_stream
+from orchestrator.router import orchestrate_request, orchestrate_request_stream, classify_intent
 from orchestrator.hitl import list_pending_tickets, list_all_tickets, review_ticket
 from orchestrator.rag import ingest_temporary_knowledge
 from orchestrator.model_gateway import calculate_token_cost
@@ -398,13 +399,24 @@ async def chat(
 
         timings = timer.get_summary()
 
-        # Layer D: Record cache hit telemetry
+        # ⚡ Estimate avoided cost from bypassed upstream LLM call
+        est_prompt_tokens = max(1, int(len(req.prompt.split()) * 1.33))
+        est_comp_tokens = max(1, int(len(cached_result.get("response", "").split()) * 1.33))
+        saved_cost = calculate_token_cost(
+            provider=cached_result.get("provider", "gemini"),
+            prompt_tokens=est_prompt_tokens,
+            completion_tokens=est_comp_tokens
+        )
+
+        # Layer D: Record cache hit telemetry + exact cost saved
         await record_request_metrics(
             provider=cached_result["provider"],
             cache_hit=True,
             total_tokens=0,
             cost_usd=0.0,
-            latency_ms=timings["total_latency_ms"]
+            latency_ms=timings["total_latency_ms"],
+            saved_cost_usd=saved_cost,
+            phase_timings=timings
         )
 
         # ⚡ CACHE HIT: Instant ~10ms return, $0.00 cost, skip LLM entirely!
@@ -429,15 +441,19 @@ async def chat(
             }
         }
 
-    # 04 Router + Orchestrator: Dispatches intent, selects model, and executes with fallback
-    # 1. Fetch Model via Orchestrator
-    # One unified call for ANY provider!
+    # 04 Router: Classify intent via fast structured output
+    timer.start_phase()
+    intent_data = await classify_intent(safe_prompt)
+    timer.record_phase("intent_routing_ms")
+
+    # 05 Model Gateway: Fetch Model via Orchestrator
     timer.start_phase()
     orch_result = await orchestrate_request(
         prompt=safe_prompt, 
         requested_model=req.provider,
         inline_context=req.context,
-        chat_history=chat_history
+        chat_history=chat_history,
+        intent_data=intent_data
     )  # ainvoke => async invoke..
     timer.record_phase("orchestrator_llm_ms")
 
@@ -505,7 +521,8 @@ async def chat(
         cache_hit=False,
         total_tokens=prompt_tokens + completion_tokens,
         cost_usd=cost,
-        latency_ms=timings["total_latency_ms"]
+        latency_ms=timings["total_latency_ms"],
+        phase_timings=timings
     )
 
     return {
@@ -513,6 +530,9 @@ async def chat(
         "session_id": session_id,
         "provider": provider_used,
         "intent": orch_result["intent"],
+        "sub_intent": orch_result.get("sub_intent"),
+        "routing_decision": orch_result.get("routing_decision"),
+        "savings_badge": orch_result.get("savings_badge"),
         "intent_confidence": orch_result.get("intent_confidence", 1.0),
         "intent_reasoning": orch_result.get("intent_reasoning", ""),
         "sources_used": orch_result.get("sources_used", []),
@@ -549,11 +569,12 @@ async def chat_stream(
     - Post-stream atomic billing deduction and Redis telemetry recording
     """
     async def sse_token_generator():
-        t0 = time.perf_counter()
+        timer = RequestTimer()
         trace_id = generate_trace_id()
         session_id = req.session_id or generate_session_id()
 
         # Step 1: Input Guardrails (Presidio PII Masking & Safety Guard)
+        timer.start_phase()
         try:
             safe_prompt = await apply_input_guardrails(req.prompt)
         except HTTPException as he:
@@ -562,18 +583,26 @@ async def chat_stream(
                 "token": f"🛡️ [Input Guardrail Blocked]: {err_msg}",
                 "done": True,
                 "error": "guardrail_violation",
-                "ttft_ms": round((time.perf_counter() - t0) * 1000, 1),
+                "ttft_ms": round((time.perf_counter() - timer.start_time) * 1000, 1),
                 "trace_id": trace_id
             }
             yield f"data: {json.dumps(payload)}\n\n"
             return
+        timer.record_phase("input_guardrails_ms")
+
+        # Step 2: Rate limit & token bucket identity layer
+        timer.record_phase("auth_ms")
 
         chat_history = await get_session_langchain_messages(session_id)
 
-        # Step 2: Semantic Cache Check
+        # Step 3: Semantic Cache Check
+        timer.start_phase()
         cached_result, prompt_vector = await check_semantic_cache(safe_prompt)
+        timer.record_phase("cache_lookup_ms")
+
         if cached_result:
-            ttft_ms = round((time.perf_counter() - t0) * 1000, 1)
+            timer.start_phase()
+            ttft_ms = round((time.perf_counter() - timer.start_time) * 1000, 1)
             cached_text = cached_result["response"]
 
             # Stream cached words smoothly
@@ -586,19 +615,42 @@ async def chat_stream(
             # Record telemetry & append to session
             await append_session_message(session_id, "user", req.prompt)
             await append_session_message(session_id, "assistant", cached_text)
+            timer.record_phase("output_guardrails_ms")
+            timings = timer.get_summary()
+
+            # Estimate avoided cost on stream cache hit
+            est_prompt_tokens = max(1, int(len(req.prompt.split()) * 1.33))
+            est_comp_tokens = max(1, int(len(words) * 1.33))
+            saved_cost = calculate_token_cost(
+                provider=cached_result.get("provider", "gemini"),
+                prompt_tokens=est_prompt_tokens,
+                completion_tokens=est_comp_tokens
+            )
+
             await record_request_metrics(
                 provider=cached_result["provider"],
                 cache_hit=True,
                 total_tokens=len(words),
                 cost_usd=0.0,
-                latency_ms=ttft_ms
+                latency_ms=timings["total_latency_ms"],
+                saved_cost_usd=saved_cost,
+                phase_timings=timings
             )
 
             # Final SSE completion packet
-            yield f"data: {json.dumps({'done': True, 'cache_hit': True, 'provider': cached_result['provider'], 'total_tokens': len(words), 'ttft_ms': ttft_ms, 'total_latency_ms': ttft_ms, 'cost_usd': 0.0, 'trace_id': trace_id, 'session_id': session_id})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'cache_hit': True, 'provider': cached_result['provider'], 'total_tokens': len(words), 'ttft_ms': ttft_ms, 'total_latency_ms': timings['total_latency_ms'], 'cost_usd': 0.0, 'trace_id': trace_id, 'session_id': session_id})}\n\n"
             return
 
-        # Step 3: Stream from Orchestrator & Model Gateway
+        # Step 4: Router Intent Classification
+        timer.start_phase()
+        intent_data = await classify_intent(safe_prompt)
+        timer.record_phase("intent_routing_ms")
+
+        sub_intent_val = intent_data.sub_intent.value if intent_data.sub_intent else None
+        routing_sla = None
+
+        # Step 5: Stream from Orchestrator & Model Gateway
+        timer.start_phase()
         first_token_sent = False
         ttft_ms = 0.0
         full_response = []
@@ -609,16 +661,19 @@ async def chat_stream(
             prompt=safe_prompt,
             requested_model=req.provider,
             inline_context=req.context,
-            max_tokens=1024,
-            chat_history=chat_history
+            max_tokens=2048,
+            chat_history=chat_history,
+            intent_data=intent_data
         ):
             if not first_token_sent:
-                ttft_ms = round((time.perf_counter() - t0) * 1000, 1)
+                ttft_ms = round((time.perf_counter() - timer.start_time) * 1000, 1)
                 first_token_sent = True
 
             token = chunk["token"]
             provider_used = chunk["provider"]
             failover_active = chunk.get("failover_triggered", False)
+            if "routing_decision" in chunk:
+                routing_sla = chunk["routing_decision"]
             full_response.append(token)
 
             event_data = {
@@ -627,12 +682,18 @@ async def chat_stream(
                 "provider": provider_used,
                 "failover_triggered": failover_active,
                 "cache_hit": False,
+                "intent": intent_data.category.value,
+                "sub_intent": sub_intent_val,
+                "routing_decision": routing_sla,
+                "savings_badge": routing_sla.get("savings_badge") if routing_sla else None,
                 "done": chunk.get("done", False),
                 "trace_id": trace_id
             }
             yield f"data: {json.dumps(event_data)}\n\n"
 
-        # Step 4: Finalize metrics & billing
+        timer.record_phase("orchestrator_llm_ms")
+
+        # Step 5: Finalize metrics & billing
         complete_text = "".join(full_response)
         total_tokens = max(1, len(complete_text) // 4)
         cost = calculate_token_cost(provider_used, len(req.prompt) // 4, total_tokens)
@@ -641,18 +702,22 @@ async def chat_stream(
         remaining_balance = deduct_usage_cost(client_info["key_hash"], cost)
 
         # Save to semantic cache & session store
+        timer.start_phase()
         if prompt_vector and len(complete_text) > 10:
             await save_to_semantic_cache(safe_prompt, prompt_vector, complete_text, provider_used)
         await append_session_message(session_id, "user", req.prompt)
         await append_session_message(session_id, "assistant", complete_text)
+        timer.record_phase("output_guardrails_ms")
 
-        total_lat = round((time.perf_counter() - t0) * 1000, 1)
+        timings = timer.get_summary()
+
         await record_request_metrics(
             provider=provider_used,
             cache_hit=False,
             total_tokens=total_tokens,
             cost_usd=cost,
-            latency_ms=total_lat
+            latency_ms=timings["total_latency_ms"],
+            phase_timings=timings
         )
 
         final_payload = {
@@ -660,11 +725,15 @@ async def chat_stream(
             "cache_hit": False,
             "total_tokens": total_tokens,
             "ttft_ms": ttft_ms,
-            "total_latency_ms": total_lat,
+            "total_latency_ms": timings["total_latency_ms"],
             "cost_usd": cost,
             "remaining_balance_usd": remaining_balance,
             "provider": provider_used,
             "failover_triggered": failover_active,
+            "intent": intent_data.category.value,
+            "sub_intent": sub_intent_val,
+            "routing_decision": routing_sla,
+            "savings_badge": routing_sla.get("savings_badge") if routing_sla else None,
             "trace_id": trace_id,
             "session_id": session_id
         }

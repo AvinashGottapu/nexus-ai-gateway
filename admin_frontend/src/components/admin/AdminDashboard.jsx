@@ -141,7 +141,7 @@ export const AdminDashboard = ({
                 <Clock className="w-4 h-4" />
               </div>
             </div>
-            {isLoadingMetrics || metrics.p95LatencyMs === null || metrics.p95LatencyMs === undefined ? (
+            {isLoadingMetrics ? (
               <div className="space-y-1.5 py-0.5">
                 <div className="flex items-center gap-2">
                   <Loader2 className="w-5 h-5 animate-spin text-emerald-500 dark:text-emerald-400" />
@@ -151,13 +151,22 @@ export const AdminDashboard = ({
                   Measuring latency window...
                 </div>
               </div>
-            ) : (
+            ) : metrics.p95LatencyMs !== null && metrics.p95LatencyMs !== undefined ? (
               <>
                 <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
                   {metrics.p95LatencyMs} <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">ms</span>
                 </div>
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">
                   Sub-40ms on Redis Semantic Cache Hits
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold font-mono text-zinc-500">
+                  -- <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">ms</span>
+                </div>
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Awaiting 1h gateway traffic
                 </div>
               </>
             )}
@@ -207,7 +216,7 @@ export const AdminDashboard = ({
                   ${Number(metrics.estimatedCostUsd).toFixed(metrics.estimatedCostUsd > 0 && metrics.estimatedCostUsd < 0.05 ? 4 : 2)}
                 </div>
                 <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                  +${Number(metrics.savedCostUsd || 0).toFixed(2)} saved via Cosine Cache
+                  +${Number(metrics.savedCostUsd || 0).toFixed(metrics.savedCostUsd > 0 && metrics.savedCostUsd < 0.05 ? 4 : 2)} saved via Cosine Cache
                 </div>
               </>
             )}
@@ -328,7 +337,7 @@ export const AdminDashboard = ({
             <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
               <span className="text-xs text-zinc-500 dark:text-zinc-400">Cost Avoidance</span>
               <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
-                ${(metrics.savedCostUsd ?? 8.92).toFixed(2)}
+                ${Number(metrics.savedCostUsd || 0).toFixed(metrics.savedCostUsd > 0 && metrics.savedCostUsd < 0.05 ? 4 : 2)}
               </div>
               <span className="text-[11px] text-zinc-500 dark:text-zinc-400">Saved by 0ms local Redis cache</span>
             </div>

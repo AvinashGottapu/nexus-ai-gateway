@@ -342,7 +342,8 @@ export const USER_METRICS = {
 };
 
 export const AVAILABLE_MODELS = [
-  { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', provider: 'Groq', latency: '400ms', cost: '$0.0002 / 1k' },
+  { id: 'auto', name: '⚡ Auto-Route (Intelligent SLA)', provider: 'Dynamic', latency: '~150ms', cost: 'Optimized SLA' },
+  { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B (Groq)', provider: 'Groq', latency: '400ms', cost: '$0.0002 / 1k' },
   { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', provider: 'Google', latency: '500ms', cost: '$0.0001 / 1k' },
-  { id: 'gpt-4o-mini', name: 'GPT-4o Mini (Fallback)', provider: 'OpenAI', latency: '650ms', cost: '$0.0006 / 1k' }
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI', latency: '650ms', cost: '$0.0006 / 1k' }
 ];

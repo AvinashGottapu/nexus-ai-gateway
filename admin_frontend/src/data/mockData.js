@@ -328,7 +328,7 @@ export const SYSTEM_METRICS = {
   p95LatencyMs: null,
   totalTokens: null,
   estimatedCostUsd: null,
-  savedCostUsd: 8.92,
+  savedCostUsd: null,
   activeAlertsCount: 1,
   currentRpm: null
 };

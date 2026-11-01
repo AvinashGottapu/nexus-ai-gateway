@@ -28,11 +28,11 @@ from orchestrator.circuit_breaker import circuit_breaker
 # --- 1. MODEL PRICING CATALOG (USD per single token) ---
 
 MODEL_PRICING = {
-    # Gemini 1.5 Flash: $0.075 / 1M prompt, $0.30 / 1M completion
+    # Gemini 2.5 Flash: $0.075 / 1M prompt, $0.30 / 1M completion
     "gemini": {
         "prompt_cost_per_token": 0.000000075,
         "completion_cost_per_token": 0.00000030,
-        "model_name": "gemini-1.5-flash"
+        "model_name": "gemini-2.5-flash"
     },
     # OpenAI GPT-4o-mini: $0.15 / 1M prompt, $0.60 / 1M completion
     "openai": {
@@ -64,6 +64,7 @@ MODEL_CATALOG = {
     "cheap": "gemini",
     "cost": "gemini",
     "gemini": "gemini",
+    "gemini-2.5-flash": "gemini",
     "gemini-1.5-flash": "gemini",
     "gemini-1.5-pro": "gemini",
 
@@ -130,31 +131,87 @@ def is_complex_reasoning(text: str) -> bool:
     return any(re.search(pat, text, re.IGNORECASE) for pat in reasoning_patterns)
 
 
-# --- 3. MODEL POLICY SELECTOR ---
+# --- 3. MODEL POLICY SELECTOR & ROUTING SLA ---
 
-def resolve_model(requested_model: Optional[str], prompt: str) -> str:
+def get_routing_sla(provider: str, sub_intent: Optional[str] = None) -> Dict[str, Any]:
     """
-    Resolves model alias into a concrete provider:
-    - User requested specific model / alias -> mapped via MODEL_CATALOG
+    Returns unit economics SLA metadata and cost savings badge
+    strictly based on the actual sub_intent detected.
+    """
+    prov = (provider or "gemini").lower()
+    s_int = (sub_intent or "normal").lower()
+
+    if "cod" in s_int:
+        return {
+            "tier": "coding",
+            "model_name": "Groq GPT-OSS 120B" if prov == "groq" else prov.upper(),
+            "provider": prov.capitalize(),
+            "sla": "Speed & Precise Syntax Adherence",
+            "savings_badge": f"💻 Auto-routed to {prov.capitalize()} (Coding Intent) — Sub-100ms LPU Syntax Speed"
+        }
+    elif "reason" in s_int:
+        return {
+            "tier": "reasoning",
+            "model_name": "OpenAI GPT-4o-mini" if prov == "openai" else prov.upper(),
+            "provider": prov.capitalize(),
+            "sla": "Deep Chain-of-Thought & Multi-Step Logic",
+            "savings_badge": f"🧠 Auto-routed to {prov.capitalize()} (Reasoning Intent) — Deep Chain-of-Thought"
+        }
+    else:  # normal intent
+        if prov == "gemini":
+            badge = "⚡ Auto-routed to Gemini Flash (Normal Intent) — Saved ~92% cost vs GPT-4o"
+        else:
+            badge = f"⚡ Auto-routed to {prov.capitalize()} (Normal Intent) — High-Speed Conversational SLA"
+        return {
+            "tier": "normal",
+            "model_name": "Gemini 2.5 Flash" if prov == "gemini" else prov.upper(),
+            "provider": prov.capitalize(),
+            "sla": "Cost & Latency Optimized ($0.0001/1k)",
+            "savings_badge": badge
+        }
+
+
+def resolve_model(
+    requested_model: Optional[str],
+    prompt: str,
+    sub_intent: Optional[str] = None
+) -> str:
+    """
+    Resolves model alias or sub-intent into a concrete provider:
+    - User requested specific model / alias (not 'auto') -> mapped via MODEL_CATALOG
     - User requested 'auto' (or omitted):
-        * Genuine code or complex reasoning -> 'openai' (GPT-4o-mini)
-        * Large text / documents (>300 words) -> 'gemini' (Flash large context & ultra cheap)
-        * Standard query -> 'groq' (Sub-200ms LPU speed)
+        * sub_intent == 'coding'    -> 'groq' (GPT-OSS-120b for syntax precision)
+        * sub_intent == 'reasoning' -> 'openai' (GPT-4o-mini for multi-step reasoning)
+        * sub_intent == 'normal'    -> 'gemini' (Gemini 1.5 Flash for ultra-low cost)
+    - Fallback keyword/complexity heuristics if sub_intent was not explicitly passed.
     """
     if requested_model:
         req = requested_model.strip().lower()
-        if req in MODEL_CATALOG:
+        if req not in ["auto", "dynamic", "default"] and req in MODEL_CATALOG:
             return MODEL_CATALOG[req]
 
     # Dynamic intelligent routing for "auto" or unspecified requests
-    if is_actual_code(prompt) or is_complex_reasoning(prompt):
+    if sub_intent:
+        s_lower = str(sub_intent).lower()
+        if "cod" in s_lower or "code" in s_lower:
+            return "groq"
+        if "reason" in s_lower or "math" in s_lower or "logic" in s_lower:
+            return "openai"
+        if "normal" in s_lower or "chat" in s_lower or "general" in s_lower:
+            return "gemini"
+
+    # Deterministic keyword & complexity fallback if sub_intent is missing
+    if is_actual_code(prompt):
+        return "groq"
+
+    if is_complex_reasoning(prompt):
         return "openai"
 
     word_count = len(prompt.split())
     if word_count > 300:
         return "gemini"
 
-    return "groq"
+    return "gemini"  # Default SLA: Cost & latency optimized
 
 
 # --- 3. MODEL INSTANTIATOR WITH TOKEN BUDGETS & TIMEOUTS ---
@@ -173,10 +230,10 @@ def create_model_instance(provider: str, max_tokens: int = 1024, timeout: float 
         )
     elif provider == "gemini":
         return ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             google_api_key=os.getenv("GOOGLE_API_KEY"),
             max_output_tokens=max_tokens,
-            timeout=timeout
+            timeout=max(12.0, timeout)
         )
     elif provider == "openai":
         return ChatOpenAI(
@@ -205,6 +262,21 @@ PROVIDER_SEMAPHORES: Dict[str, asyncio.Semaphore] = {
 SEMAPHORE_QUEUE_TIMEOUT = 2.0
 
 
+def get_semaphore_status() -> Dict[str, Any]:
+    """Returns active concurrency count and capacity caps per upstream provider."""
+    caps = {"groq": 15, "openai": 20, "gemini": 15}
+    status = {}
+    for prov, cap in caps.items():
+        sem = PROVIDER_SEMAPHORES.get(prov)
+        # In asyncio.Semaphore, _value is remaining permits.
+        active = max(0, cap - (getattr(sem, "_value", cap)))
+        status[prov] = {
+            "active": active,
+            "cap": cap
+        }
+    return status
+
+
 # --- 5. EXECUTE WITH AUTOMATIC RETRIES, CONCURRENCY CAPS & FALLBACK CASCADE ---
 
 async def execute_model_gateway(
@@ -212,7 +284,8 @@ async def execute_model_gateway(
     requested_model: Optional[str] = "auto",
     max_tokens: int = 1024,
     retry_attempts: int = 1,
-    chat_history: Optional[List[BaseMessage]] = None
+    chat_history: Optional[List[BaseMessage]] = None,
+    sub_intent: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     07 Model Gateway:
@@ -224,7 +297,7 @@ async def execute_model_gateway(
     - Seamless fallback cascade: Primary -> Fallback 1 -> Fallback 2
     - Context-aware multi-turn conversations (supports chat_history from Session Store)
     """
-    primary_provider = resolve_model(requested_model, prompt)
+    primary_provider = resolve_model(requested_model, prompt, sub_intent=sub_intent)
 
     fallback_chain = ["groq", "gemini", "openai"]
     if primary_provider in fallback_chain:
@@ -303,7 +376,8 @@ async def execute_model_gateway_stream(
     prompt: str,
     requested_model: Optional[str] = "auto",
     max_tokens: int = 1024,
-    chat_history: Optional[List[BaseMessage]] = None
+    chat_history: Optional[List[BaseMessage]] = None,
+    sub_intent: Optional[str] = None
 ):
     """
     07 Model Gateway (Token Streaming Engine):
@@ -312,7 +386,7 @@ async def execute_model_gateway_stream(
     - Automatically cascades to next fallback provider if primary fails before first token
     - Context-aware multi-turn history support
     """
-    primary_provider = resolve_model(requested_model, prompt)
+    primary_provider = resolve_model(requested_model, prompt, sub_intent=sub_intent)
 
     fallback_chain = ["groq", "gemini", "openai"]
     if primary_provider in fallback_chain:

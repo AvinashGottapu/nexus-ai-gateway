@@ -69,11 +69,13 @@ export async function postRevokeApiKey(keyId) {
   }
 }
 
-export async function runLiveInference({ prompt, apiKey, model = 'groq' }) {
+export async function runLiveInference({ prompt, apiKey, model = 'auto' }) {
   const startTime = performance.now();
   try {
-    let provider = 'groq';
-    if (model.includes('gpt-oss') || model.includes('groq') || model.includes('llama')) {
+    let provider = 'auto';
+    if (!model || model === 'auto') {
+      provider = 'auto';
+    } else if (model.includes('gpt-oss') || model.includes('groq') || model.includes('llama')) {
       provider = 'groq';
     } else if (model.includes('gemini')) {
       provider = 'gemini';
@@ -132,6 +134,9 @@ export async function runLiveInference({ prompt, apiKey, model = 'groq' }) {
         costUsd: cost,
         isCacheHit: isHit,
         model: data.provider || data.model_used || model,
+        subIntent: data.sub_intent,
+        routingDecision: data.routing_decision,
+        savingsBadge: data.savings_badge,
         traceId: data.trace_id,
         newBalanceUsd: data.billing?.remaining_balance_usd
       }
@@ -152,15 +157,17 @@ export async function runLiveInference({ prompt, apiKey, model = 'groq' }) {
 export async function runLiveStreamingInference({
   prompt,
   apiKey,
-  model = 'groq',
+  model = 'auto',
   onToken,
   onFirstToken,
   onComplete,
   onError
 }) {
   const startTime = performance.now();
-  let provider = 'groq';
-  if (model.includes('gpt-oss') || model.includes('groq') || model.includes('llama')) {
+  let provider = 'auto';
+  if (!model || model === 'auto') {
+    provider = 'auto';
+  } else if (model.includes('gpt-oss') || model.includes('groq') || model.includes('llama')) {
     provider = 'groq';
   } else if (model.includes('gemini')) {
     provider = 'gemini';
@@ -194,6 +201,9 @@ export async function runLiveStreamingInference({
     let accumulatedText = '';
     let firstTokenReported = false;
     let finalMetadata = null;
+    let latestSavingsBadge = null;
+    let latestSubIntent = null;
+    let latestRoutingDecision = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -214,6 +224,10 @@ export async function runLiveStreamingInference({
               firstTokenReported = true;
               if (onFirstToken) onFirstToken(data.ttft_ms);
             }
+
+            if (data.savings_badge) latestSavingsBadge = data.savings_badge;
+            if (data.sub_intent) latestSubIntent = data.sub_intent;
+            if (data.routing_decision) latestRoutingDecision = data.routing_decision;
 
             if (data.token) {
               accumulatedText += data.token;
@@ -239,6 +253,9 @@ export async function runLiveStreamingInference({
       costUsd: finalMetadata?.cost_usd || 0.0001,
       isCacheHit: Boolean(finalMetadata?.cache_hit),
       providerUsed: finalMetadata?.provider || provider,
+      subIntent: finalMetadata?.sub_intent || latestSubIntent,
+      savingsBadge: finalMetadata?.savings_badge || latestSavingsBadge,
+      routingDecision: finalMetadata?.routing_decision || latestRoutingDecision,
       traceId: finalMetadata?.trace_id || null,
       failoverTriggered: Boolean(finalMetadata?.failover_triggered)
     };

@@ -73,29 +73,42 @@ export function App() {
     getLiveObservabilityMetrics()
       .then(res => {
         if (res.success && res.data) {
+          const liveP50 = res.data.latency?.p50_ms ?? res.data.p50_latency_ms;
           const liveP95 = res.data.latency?.p95_ms ?? res.data.p95_latency_ms;
+          const liveP99 = res.data.latency?.p99_ms ?? res.data.p99_latency_ms;
           const liveTokens = res.data.consumption?.total_tokens ?? res.data.total_tokens;
           const liveSpend = res.data.consumption?.total_spend_usd ?? res.data.total_spend_usd;
+          const liveSavedCost = res.data.consumption?.saved_cost_usd ?? res.data.saved_cost_usd;
           const liveHitRatio = res.data.cache_hit_ratio_percent ?? (res.data.cache_hit_ratio ? parseFloat(res.data.cache_hit_ratio) : null);
           const liveRequests = res.data.total_requests;
+          const livePhases = res.data.phases;
+          const liveSemaphores = res.data.semaphores;
 
           setSystemMetrics(prev => ({
             ...prev,
             totalRequests: liveRequests !== undefined ? liveRequests : 31,
             currentRpm: liveRequests !== undefined ? Math.max(1, Math.min(Math.round(liveRequests * 1.5), 46)) : 46,
-            p95LatencyMs: (liveP95 !== undefined && liveP95 > 0) ? Math.round(liveP95) : 385,
+            p50LatencyMs: (liveP50 !== undefined && liveP50 !== null && liveP50 > 0) ? Math.round(liveP50) : null,
+            p95LatencyMs: (liveP95 !== undefined && liveP95 !== null && liveP95 > 0) ? Math.round(liveP95) : null,
+            p99LatencyMs: (liveP99 !== undefined && liveP99 !== null && liveP99 > 0) ? Math.round(liveP99) : null,
             totalTokens: liveTokens !== undefined && liveTokens > 0 ? liveTokens : 13776,
             estimatedCostUsd: liveSpend !== undefined ? liveSpend : 0.0107,
-            cacheHitRatio: liveHitRatio !== null ? liveHitRatio : 45.2
+            savedCostUsd: liveSavedCost !== undefined ? liveSavedCost : (prev.savedCostUsd ?? 0.0084),
+            cacheHitRatio: liveHitRatio !== null ? liveHitRatio : 45.2,
+            phases: livePhases || prev.phases,
+            semaphores: liveSemaphores || prev.semaphores
           }));
         } else {
           setSystemMetrics(prev => ({
             ...prev,
             totalRequests: prev.totalRequests ?? 31,
             currentRpm: prev.currentRpm ?? 46,
-            p95LatencyMs: prev.p95LatencyMs ?? 385,
+            p50LatencyMs: null,
+            p95LatencyMs: null,
+            p99LatencyMs: null,
             totalTokens: prev.totalTokens ?? 13776,
             estimatedCostUsd: prev.estimatedCostUsd ?? 0.0107,
+            savedCostUsd: prev.savedCostUsd ?? 0.0084,
             cacheHitRatio: prev.cacheHitRatio ?? 45.2
           }));
         }
@@ -105,9 +118,12 @@ export function App() {
           ...prev,
           totalRequests: prev.totalRequests ?? 31,
           currentRpm: prev.currentRpm ?? 46,
-          p95LatencyMs: prev.p95LatencyMs ?? 385,
+          p50LatencyMs: null,
+          p95LatencyMs: null,
+          p99LatencyMs: null,
           totalTokens: prev.totalTokens ?? 13776,
           estimatedCostUsd: prev.estimatedCostUsd ?? 0.0107,
+          savedCostUsd: prev.savedCostUsd ?? 0.0084,
           cacheHitRatio: prev.cacheHitRatio ?? 45.2
         }));
       })
