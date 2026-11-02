@@ -57,6 +57,7 @@ Classify the user prompt into exactly ONE primary category, and if 'general', ch
    - Initiating an actual refund, money transfer, card charge, or payout.
    - Requesting account deletion, database wiping, or canceling an active subscription.
    - NOTE: Merely asking ABOUT policy (e.g., 'What is your refund policy on sale items?') is NOT high_risk; it is 'rag'.
+   - NOTE: Standard developer tasks, Git/GitHub MCP operations (such as creating a repo, creating an issue, searching repositories, writing code) are 'general' with sub_intent 'coding', NOT high_risk!
 
 2. 'rag': The user is inquiring about company policies, product manuals, specs, pricing, shipping, or catalog facts AND THAT CONTEXT IS MISSING:
    - Questions about returns, warranties, terms of service, shipping times where no reference context is given.
