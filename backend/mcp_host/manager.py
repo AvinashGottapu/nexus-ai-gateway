@@ -106,8 +106,10 @@ class HostManager:
 
     async def _create_and_connect_client(self, name: str, cfg: Dict[str, Any]) -> bool:
         """Helper to instantiate and connect a single MCPClient."""
-        # Stop existing client if already running
+        # If already connected, keep existing connection
         if name in self.clients:
+            if self.clients[name].is_connected:
+                return True
             await self.clients[name].close()
             del self.clients[name]
 

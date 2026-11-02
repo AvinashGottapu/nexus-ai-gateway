@@ -863,9 +863,16 @@ async def shutdown_mcp_host():
         print(f"[NEXUS-MCP] Shutdown error: {e}")
 
 @app.get("/v1/mcp/servers")
-def list_mcp_servers():
+async def list_mcp_servers():
     """Returns all configured MCP servers, connection states, and exposed tool definitions."""
     mgr = get_host_manager()
+    # Self-healing: if any enabled server is not yet connected, connect it immediately
+    has_disconnected = any(
+        cfg.get("enabled", True) and (name not in mgr.clients or not mgr.clients[name].is_connected)
+        for name, cfg in mgr.server_configs.items()
+    )
+    if has_disconnected:
+        await mgr.start_all()
     return mgr.get_status()
 
 @app.post("/v1/mcp/servers")

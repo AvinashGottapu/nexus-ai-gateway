@@ -69,7 +69,7 @@ export function MCPServerManager({ onSwitchToPlayground }) {
   useEffect(() => {
     fetchServers();
 
-    // Auto-poll every 3.5s so connection state & tool counts sync in real time
+    // Auto-poll every 1.8s so connection state & tool counts sync in real time on startup
     const interval = setInterval(() => {
       getLiveMCPServers().then(res => {
         if (res.success && res.data) {
@@ -81,7 +81,7 @@ export function MCPServerManager({ onSwitchToPlayground }) {
           });
         }
       }).catch(() => {});
-    }, 3500);
+    }, 1800);
 
     return () => clearInterval(interval);
   }, []);
@@ -378,7 +378,7 @@ export function MCPServerManager({ onSwitchToPlayground }) {
                       {server.name}
                     </span>
                     <Badge variant={server.connected ? 'success' : server.enabled ? 'warning' : 'default'}>
-                      {server.connected ? '🟢 Connected' : server.enabled ? '🟡 Connecting / Idle' : '⚪ Disabled'}
+                      {server.connected ? '🟢 Connected' : server.enabled ? '🟡 Initializing (~2s)...' : '⚪ Disabled'}
                     </Badge>
                     <span className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
                       {server.transport === 'sse' ? <Globe className="w-3 h-3 text-blue-400" /> : <Terminal className="w-3 h-3 text-emerald-400" />}
