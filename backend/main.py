@@ -499,7 +499,11 @@ async def chat(
     timer.record_phase("output_guardrails_ms")
 
     # 03 Semantic Cache: Diagram rule: "Write only after output validation"
-    if output_guard["passed"]:
+    if (
+        output_guard["passed"]
+        and "Sensitive Operation Intercepted" not in final_answer
+        and "Review Ticket #" not in final_answer
+    ):
         await save_to_semantic_cache(safe_prompt, prompt_vector, final_answer, provider_used)
 
     # Layer C: Session Store - Append conversation turns to Redis with 2-hour sliding window TTL
@@ -710,7 +714,12 @@ async def chat_stream(
 
         # Save to semantic cache & session store
         timer.start_phase()
-        if prompt_vector and len(complete_text) > 10:
+        if (
+            prompt_vector
+            and len(complete_text) > 10
+            and "Sensitive Operation Intercepted" not in complete_text
+            and "Review Ticket #" not in complete_text
+        ):
             await save_to_semantic_cache(safe_prompt, prompt_vector, complete_text, provider_used)
         await append_session_message(session_id, "user", req.prompt)
         await append_session_message(session_id, "assistant", complete_text)
