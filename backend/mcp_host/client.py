@@ -162,14 +162,23 @@ class MCPClient:
         cmd_full = [exec_cmd] + self.args
         logger.info(f"Spawning stdio process for '{self.name}': {' '.join(cmd_full)}")
 
-        self._process = await asyncio.create_subprocess_exec( # Launches the program
-            exec_cmd,
-            *self.args,
-            stdin=asyncio.subprocess.PIPE, # Sets up 3 separate operating system pipes
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=merged_env
-        )
+        try:
+            self._process = await asyncio.create_subprocess_exec( # Launches the program
+                exec_cmd,
+                *self.args,
+                stdin=asyncio.subprocess.PIPE, # Sets up 3 separate operating system pipes
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=merged_env
+            )
+        except NotImplementedError:
+            err_msg = (
+                f"Windows SelectorEventLoop does not support subprocesses for '{self.name}'. "
+                "Restart the server with: uvicorn main:app --reload --loop asyncio:ProactorEventLoop "
+                "or run: python run.py"
+            )
+            logger.error(f"[{self.name}] {err_msg}")
+            raise MCPClientError(err_msg)
 
         ## asyncio.create_task: Starts two background workers running in parallel
         # Start continuous reader tasks for stdout (JSON-RPC) and stderr (diagnostics)
