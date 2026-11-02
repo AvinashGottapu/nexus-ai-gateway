@@ -63,6 +63,14 @@ export function App() {
     getLiveApiKeys().then(res => {
       if (res.success && res.data && res.data.length > 0) {
         setApiKeys(res.data);
+        const activeKeys = res.data.filter(k => k.status === 'active');
+        const primaryKey = activeKeys[0] || res.data[0];
+        if (primaryKey && primaryKey.balanceUsd !== undefined) {
+          setUserMetrics(prev => ({
+            ...prev,
+            remainingBalanceUsd: primaryKey.balanceUsd
+          }));
+        }
       }
     });
     getLiveTelemetry().then(res => {
@@ -75,6 +83,18 @@ export function App() {
       }
     });
   }, []);
+
+  const handleBalanceUpdated = (newBalance) => {
+    setUserMetrics(prev => ({
+      ...prev,
+      remainingBalanceUsd: newBalance
+    }));
+    getLiveApiKeys().then(res => {
+      if (res.success && res.data && res.data.length > 0) {
+        setApiKeys(res.data);
+      }
+    });
+  };
 
   useEffect(() => {
     if (isDark) {
@@ -301,7 +321,10 @@ export function App() {
             <MCPServerManager onSwitchToPlayground={() => setActiveTab('playground')} />
           )}
           {activeTab === 'billing' && (
-            <BillingUsage userMetrics={userMetrics} />
+            <BillingUsage
+              userMetrics={userMetrics}
+              onBalanceUpdate={handleBalanceUpdated}
+            />
           )}
           {activeTab === 'settings' && (
             <SecuritySettings />

@@ -20,7 +20,7 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '../ui/Table';
 import { Modal } from '../ui/Modal';
-import { getLivePayments, postStripeCheckout } from '../../services/api';
+import { getLivePayments, postStripeCheckout, getLiveApiKeys } from '../../services/api';
 
 const TEST_CARDS = [
   { label: '4242 4242 4242 4242', type: 'success', desc: 'Standard Visa (Success)', brand: 'Visa' },
@@ -29,8 +29,8 @@ const TEST_CARDS = [
   { label: '4000 0000 0000 0069', type: 'expired', desc: 'Expired Card Error', brand: 'Visa' }
 ];
 
-export const BillingUsage = ({ userMetrics }) => {
-  const [balance, setBalance] = useState(userMetrics.remainingBalanceUsd);
+export const BillingUsage = ({ userMetrics, onBalanceUpdate }) => {
+  const [balance, setBalance] = useState(userMetrics?.remainingBalanceUsd ?? 0);
   const [payments, setPayments] = useState([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState(25);
@@ -46,6 +46,13 @@ export const BillingUsage = ({ userMetrics }) => {
 
   const currentUserEmail = 'sarah.chen@techcorp.com';
 
+  // Keep local balance in sync whenever userMetrics updates from parent
+  useEffect(() => {
+    if (userMetrics?.remainingBalanceUsd !== undefined) {
+      setBalance(userMetrics.remainingBalanceUsd);
+    }
+  }, [userMetrics?.remainingBalanceUsd]);
+
   // Fetch live payments from SQLite backend on load
   const loadPayments = () => {
     getLivePayments(currentUserEmail).then(res => {
@@ -57,6 +64,17 @@ export const BillingUsage = ({ userMetrics }) => {
 
   useEffect(() => {
     loadPayments();
+    // Directly fetch live keys on mount to guarantee 100% sync with SQLite database
+    getLiveApiKeys().then(res => {
+      if (res.success && res.data && res.data.length > 0) {
+        const active = res.data.filter(k => k.status === 'active');
+        const primary = active[0] || res.data[0];
+        if (primary && primary.balanceUsd !== undefined) {
+          setBalance(primary.balanceUsd);
+          if (onBalanceUpdate) onBalanceUpdate(primary.balanceUsd);
+        }
+      }
+    });
   }, []);
 
   const handleOpenCheckout = (amt) => {
@@ -110,14 +128,16 @@ export const BillingUsage = ({ userMetrics }) => {
 
     if (res.success && res.data) {
       if (res.data.status === 'succeeded') {
-        if (res.data.new_balance_usd !== null && res.data.new_balance_usd !== undefined) {
-          setBalance(res.data.new_balance_usd);
-        } else {
-          setBalance(prev => prev + selectedAmount);
+        const updatedBal = (res.data.new_balance_usd !== null && res.data.new_balance_usd !== undefined)
+          ? res.data.new_balance_usd
+          : (balance + selectedAmount);
+        setBalance(updatedBal);
+        if (onBalanceUpdate) {
+          onBalanceUpdate(updatedBal);
         }
         setPaymentNotice({
           type: 'success',
-          msg: `Payment of $${selectedAmount}.00 succeeded via Stripe (${res.data.stripe_charge_id || 'ch_live'})! Credits added to your balance.`
+          msg: `Payment of $${selectedAmount}.00 succeeded via Stripe (${res.data.stripe_charge_id || 'ch_live'})! Credits added to your wallet.`
         });
       } else {
         setPaymentNotice({
