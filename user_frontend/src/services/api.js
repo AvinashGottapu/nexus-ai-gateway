@@ -93,7 +93,7 @@ export async function runLiveInference({ prompt, apiKey, model = 'auto' }) {
         prompt,
         provider
       }),
-      signal: AbortSignal.timeout(45000)
+      signal: AbortSignal.timeout(90000)
     });
 
     const elapsed = Math.round(performance.now() - startTime);

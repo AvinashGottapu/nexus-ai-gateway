@@ -125,7 +125,7 @@ async def run_llama_guard(prompt: str) -> None:
         return
 
     # Use active Groq safeguard model with graceful fallback
-    guard_model_name = "meta-llama/llama-guard-4-12b"
+    guard_model_name = "openai/gpt-oss-safeguard-20b"
     try:
         guard_model = ChatGroq(
             model=guard_model_name,

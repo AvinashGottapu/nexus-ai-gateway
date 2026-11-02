@@ -138,7 +138,7 @@ def get_routing_sla(provider: str, sub_intent: Optional[str] = None) -> Dict[str
     Returns unit economics SLA metadata and cost savings badge
     strictly based on the actual sub_intent detected.
     """
-    prov = (provider or "gemini").lower()
+    prov = (provider or "groq").lower()
     s_int = (sub_intent or "normal").lower()
 
     if "cod" in s_int:
@@ -158,15 +158,12 @@ def get_routing_sla(provider: str, sub_intent: Optional[str] = None) -> Dict[str
             "savings_badge": f"🧠 Auto-routed to {prov.capitalize()} (Reasoning Intent) — Deep Chain-of-Thought"
         }
     else:  # normal intent
-        if prov == "gemini":
-            badge = "⚡ Auto-routed to Gemini Flash (Normal Intent) — Saved ~92% cost vs GPT-4o"
-        else:
-            badge = f"⚡ Auto-routed to {prov.capitalize()} (Normal Intent) — High-Speed Conversational SLA"
+        badge = f"⚡ Auto-routed to {prov.capitalize()} (Primary SLA) — High-Speed LPU Inference"
         return {
             "tier": "normal",
-            "model_name": "Gemini 2.5 Flash" if prov == "gemini" else prov.upper(),
+            "model_name": "Groq GPT-OSS 120B" if prov == "groq" else prov.upper(),
             "provider": prov.capitalize(),
-            "sla": "Cost & Latency Optimized ($0.0001/1k)",
+            "sla": "Speed & Quota Optimized",
             "savings_badge": badge
         }
 
@@ -182,7 +179,7 @@ def resolve_model(
     - User requested 'auto' (or omitted):
         * sub_intent == 'coding'    -> 'groq' (GPT-OSS-120b for syntax precision)
         * sub_intent == 'reasoning' -> 'openai' (GPT-4o-mini for multi-step reasoning)
-        * sub_intent == 'normal'    -> 'gemini' (Gemini 1.5 Flash for ultra-low cost)
+        * sub_intent == 'normal'    -> 'groq' (Groq Primary for high credits & speed)
     - Fallback keyword/complexity heuristics if sub_intent was not explicitly passed.
     """
     if requested_model:
@@ -198,7 +195,7 @@ def resolve_model(
         if "reason" in s_lower or "math" in s_lower or "logic" in s_lower:
             return "openai"
         if "normal" in s_lower or "chat" in s_lower or "general" in s_lower:
-            return "gemini"
+            return "groq"
 
     # Deterministic keyword & complexity fallback if sub_intent is missing
     if is_actual_code(prompt):
@@ -207,11 +204,7 @@ def resolve_model(
     if is_complex_reasoning(prompt):
         return "openai"
 
-    word_count = len(prompt.split())
-    if word_count > 300:
-        return "gemini"
-
-    return "gemini"  # Default SLA: Cost & latency optimized
+    return "groq"  # Default SLA: Groq primary (highest credits, speed & reliability)
 
 
 # --- 3. MODEL INSTANTIATOR WITH TOKEN BUDGETS & TIMEOUTS ---
@@ -341,7 +334,12 @@ async def execute_model_gateway(
                                 chat_history=chat_history
                             )
                         except Exception as mcp_err:
-                            print(f"[MODEL-GATEWAY] MCP execution bypassed/failed ({mcp_err}), falling back to direct prompt.")
+                            err_str = str(mcp_err).lower()
+                            print(f"[MODEL-GATEWAY] MCP execution failed on '{provider}' ({mcp_err}).")
+                            # If upstream model hit quota exhaustion / rate limit, fail over immediately
+                            if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str:
+                                raise
+                            print(f"[MODEL-GATEWAY] Falling back to direct prompt on '{provider}'.")
                             response = await model.ainvoke(invocation_input)
                             final_text = response.content if hasattr(response, "content") else str(response)
                     else:
