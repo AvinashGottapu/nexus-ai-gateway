@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "nexus-local": {
+      "description": "Nexus AI Gateway in-process MCP server exposing cluster observability, PII routing, and RAG",
+      "command": "d:\\WEB\\PROJECTS\\AI_BACKEND_PLATFORM\\.venv\\Scripts\\python.exe",
+      "args": [
+        "d:\\WEB\\PROJECTS\\AI_BACKEND_PLATFORM\\backend\\mcp_server.py"
+      ],
+      "enabled": true
+    }
+  }
+}

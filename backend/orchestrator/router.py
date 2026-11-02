@@ -165,7 +165,8 @@ async def orchestrate_request(
     inline_context: Optional[str] = None,
     max_tokens: int = 2048,
     chat_history: Optional[List[BaseMessage]] = None,
-    intent_data: Optional[IntentClassification] = None
+    intent_data: Optional[IntentClassification] = None,
+    enable_mcp: bool = True
 ) -> Dict[str, Any]:
     """
     04 Router + Orchestrator:
@@ -249,7 +250,8 @@ async def orchestrate_request(
         max_tokens=max_tokens,
         retry_attempts=1,
         chat_history=chat_history,
-        sub_intent=sub_intent_val
+        sub_intent=sub_intent_val,
+        enable_mcp=enable_mcp
     )
 
     routing_sla = get_routing_sla(gateway_result["provider_used"], sub_intent_val)
@@ -267,6 +269,7 @@ async def orchestrate_request(
         "routing_decision": routing_sla,
         "savings_badge": routing_sla["savings_badge"],
         "response": gateway_result["response"],
+        "mcp_tools_executed": gateway_result.get("mcp_tools_executed", []),
         "response_metadata": gateway_result["response_metadata"]
     }
 

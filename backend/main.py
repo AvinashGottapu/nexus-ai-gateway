@@ -825,6 +825,91 @@ def view_feedback_telemetry():
     return get_feedback_summary()
 
 
+# --- MODEL CONTEXT PROTOCOL (MCP) HOST MANAGEMENT ---
+from mcp_host.manager import get_host_manager
+
+class MCPServerCreateRequest(BaseModel):
+    name: str
+    transport: Optional[str] = "stdio"  # "stdio" or "sse"
+    command: Optional[str] = None
+    args: Optional[list] = None
+    url: Optional[str] = None
+    env: Optional[dict] = None
+    enabled: bool = True
+
+@app.on_event("startup")
+async def startup_mcp_host():
+    """Autostart configured MCP servers on gateway boot."""
+    try:
+        mgr = get_host_manager()
+        asyncio.create_task(mgr.start_all())
+    except Exception as e:
+        print(f"[NEXUS-MCP] Autostart error: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_mcp_host():
+    """Gracefully terminate all MCP child processes on gateway shutdown."""
+    try:
+        mgr = get_host_manager()
+        await mgr.stop_all()
+    except Exception as e:
+        print(f"[NEXUS-MCP] Shutdown error: {e}")
+
+@app.get("/v1/mcp/servers")
+def list_mcp_servers():
+    """Returns all configured MCP servers, connection states, and exposed tool definitions."""
+    mgr = get_host_manager()
+    return mgr.get_status()
+
+@app.post("/v1/mcp/servers")
+async def register_mcp_server(req: MCPServerCreateRequest):
+    """Dynamically connects and persists a new MCP server (local stdio or remote SSE)."""
+    mgr = get_host_manager()
+    clean_name = req.name.strip().lower().replace(" ", "-")
+    config = {
+        "enabled": req.enabled,
+        "env": req.env or {}
+    }
+    if req.transport == "sse" or req.url:
+        config["url"] = req.url
+    else:
+        config["command"] = req.command
+        config["args"] = req.args or []
+
+    success = await mgr.add_server(clean_name, config, auto_connect=req.enabled)
+    return {
+        "success": success,
+        "server_name": clean_name,
+        "status": mgr.get_status()
+    }
+
+@app.delete("/v1/mcp/servers/{server_name}")
+async def remove_mcp_server(server_name: str):
+    """Disconnects and removes an MCP server from configuration."""
+    mgr = get_host_manager()
+    success = await mgr.remove_server(server_name)
+    return {"success": success, "removed": server_name, "status": mgr.get_status()}
+
+@app.post("/v1/mcp/servers/{server_name}/toggle")
+async def toggle_mcp_server(server_name: str):
+    """Toggles an MCP server between active and disabled states."""
+    mgr = get_host_manager()
+    cfg = mgr.server_configs.get(server_name)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"Server '{server_name}' not found.")
+    
+    new_state = not cfg.get("enabled", True)
+    cfg["enabled"] = new_state
+    mgr.save_config()
+
+    if new_state:
+        await mgr.connect_server(server_name)
+    else:
+        await mgr.disconnect_server(server_name)
+
+    return {"success": True, "server_name": server_name, "enabled": new_state, "status": mgr.get_status()}
+
+
 # --- SERVE FRONTEND SPA DASHBOARD (USER & ADMIN PORTALS) ---
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

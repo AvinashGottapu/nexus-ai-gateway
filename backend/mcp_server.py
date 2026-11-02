@@ -342,7 +342,9 @@ def main():
     log_debug(f"Loaded {len(tools)} MCP tools (query_nexus_gateway, get_cluster_observability, search_knowledge_rag, list_api_keys)")
 
     while True:
-        line = sys.stdin.readline()  ## It tells Python: "Freeze and wait until Claude sends a message."
+        line = sys.stdin.readline()   
+        ## {"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"get_cluster_observability","arguments":{}}}
+        ## It tells Python: "Freeze and wait until Claude sends a message."
         if not line: ## If you close Claude Desktop or Cursor...
             break
 

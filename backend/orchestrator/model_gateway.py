@@ -285,7 +285,8 @@ async def execute_model_gateway(
     max_tokens: int = 1024,
     retry_attempts: int = 1,
     chat_history: Optional[List[BaseMessage]] = None,
-    sub_intent: Optional[str] = None
+    sub_intent: Optional[str] = None,
+    enable_mcp: bool = True
 ) -> Dict[str, Any]:
     """
     07 Model Gateway:
@@ -329,8 +330,23 @@ async def execute_model_gateway(
                     await sem.acquire()  # Countdown applies strictly to queue waiting!
 
                 try:
-                    # Step 2: Once inside the slot, the model gets its full 10.0s thinking budget!
-                    response = await model.ainvoke(invocation_input)
+                    # Step 2: Once inside the slot, the model gets its full thinking budget!
+                    tools_executed = []
+                    if enable_mcp:
+                        try:
+                            from mcp_host.tool_adapter import execute_with_mcp_tools
+                            final_text, tools_executed = await execute_with_mcp_tools(
+                                model_instance=model,
+                                prompt=prompt,
+                                chat_history=chat_history
+                            )
+                        except Exception as mcp_err:
+                            print(f"[MODEL-GATEWAY] MCP execution bypassed/failed ({mcp_err}), falling back to direct prompt.")
+                            response = await model.ainvoke(invocation_input)
+                            final_text = response.content if hasattr(response, "content") else str(response)
+                    else:
+                        response = await model.ainvoke(invocation_input)
+                        final_text = response.content if hasattr(response, "content") else str(response)
                 finally:
                     # Always release the concurrency slot so the next queued request can enter immediately
                     sem.release()
@@ -344,8 +360,9 @@ async def execute_model_gateway(
                     "status": "completed",
                     "provider_used": provider_used,
                     "failover_triggered": provider_used != primary_provider,
-                    "response": response.content,
-                    "response_metadata": getattr(response, "response_metadata", {})
+                    "response": final_text,
+                    "mcp_tools_executed": tools_executed,
+                    "response_metadata": {}
                 }
             except TimeoutError:
                 # Queue congestion: Provider queue didn't open a slot in 2s
