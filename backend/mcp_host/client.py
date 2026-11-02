@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import shutil
 import asyncio
 import logging
 from typing import Dict, Any, List, Optional, Union
@@ -149,11 +150,20 @@ class MCPClient:
         merged_env["PYTHONIOENCODING"] = "utf-8" # Guarantees emojis, special characters, and Unicode don't crash the Windows pipe.
         merged_env["PYTHONUNBUFFERED"] = "1" # Forces the child process to send its output immediately
 
-        cmd_full = [self.command] + self.args
+        # Resolve command path on Windows (e.g. npx -> npx.cmd, python -> sys.executable)
+        exec_cmd = self.command
+        if exec_cmd in ("python", "python3") or (exec_cmd and not os.path.isabs(exec_cmd) and "python" in exec_cmd.lower()):
+            exec_cmd = sys.executable
+        elif exec_cmd:
+            resolved = shutil.which(exec_cmd)
+            if resolved:
+                exec_cmd = resolved
+
+        cmd_full = [exec_cmd] + self.args
         logger.info(f"Spawning stdio process for '{self.name}': {' '.join(cmd_full)}")
 
         self._process = await asyncio.create_subprocess_exec( # Launches the program
-            self.command,
+            exec_cmd,
             *self.args,
             stdin=asyncio.subprocess.PIPE, # Sets up 3 separate operating system pipes
             stdout=asyncio.subprocess.PIPE,

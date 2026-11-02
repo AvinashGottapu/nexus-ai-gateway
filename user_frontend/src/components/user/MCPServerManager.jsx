@@ -68,6 +68,22 @@ export function MCPServerManager({ onSwitchToPlayground }) {
 
   useEffect(() => {
     fetchServers();
+
+    // Auto-poll every 3.5s so connection state & tool counts sync in real time
+    const interval = setInterval(() => {
+      getLiveMCPServers().then(res => {
+        if (res.success && res.data) {
+          setServers(res.data.servers || []);
+          setStats({
+            total_configured: res.data.total_configured || 0,
+            total_connected: res.data.total_connected || 0,
+            total_tools_available: res.data.total_tools_available || 0
+          });
+        }
+      }).catch(() => {});
+    }, 3500);
+
+    return () => clearInterval(interval);
   }, []);
 
   // Handle Preset Selection

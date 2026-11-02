@@ -1,7 +1,14 @@
 import os
+import sys
 import json
 import time
 import asyncio
+
+# Ensure backend root is on sys.path for robust submodule importing
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import StreamingResponse
@@ -842,7 +849,7 @@ async def startup_mcp_host():
     """Autostart configured MCP servers on gateway boot."""
     try:
         mgr = get_host_manager()
-        asyncio.create_task(mgr.start_all())
+        await mgr.start_all()
     except Exception as e:
         print(f"[NEXUS-MCP] Autostart error: {e}")
 

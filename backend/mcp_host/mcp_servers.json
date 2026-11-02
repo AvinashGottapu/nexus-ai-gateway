@@ -7,6 +7,17 @@
         "d:\\WEB\\PROJECTS\\AI_BACKEND_PLATFORM\\backend\\mcp_server.py"
       ],
       "enabled": true
+    },
+    "github-tools": {
+      "enabled": true,
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
+      },
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ]
     }
   }
 }
