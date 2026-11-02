@@ -159,15 +159,14 @@ async def execute_mcp_tool(name: str, arguments: Dict[str, Any]) -> str:
             return json.dumps({"status": "error", "message": str(e)})
 
     elif name == "list_api_keys":
-        from auth.keys import get_all_api_keys
+        from gateway.identity import list_api_keys
         try:
-            keys = get_all_api_keys()
+            keys = list_api_keys()
             safe_keys = []
             for k in keys:
                 safe_keys.append({
-                    "id": k.get("id"),
+                    "id": k.get("key_hash", "")[:8],
                     "name": k.get("name"),
-                    "tier": k.get("tier"),
                     "rpm_limit": k.get("rpm_limit"),
                     "balance_usd": k.get("balance_usd"),
                     "status": "active" if k.get("is_active") else "revoked"
