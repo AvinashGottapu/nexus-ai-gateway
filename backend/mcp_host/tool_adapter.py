@@ -125,9 +125,12 @@ async def execute_with_mcp_tools(
                 "status": status
             })
 
+            # Truncate giant tool outputs (e.g. huge git commit/search JSON) so multi-turn loops stay safely within Groq TPM limits
+            truncated_for_llm = result_str[:2200] if len(result_str) > 2200 else result_str
+
             # Append ToolMessage result so the LLM sees the data in next turn
             messages.append(ToolMessage(
-                content=result_str,
+                content=truncated_for_llm,
                 tool_call_id=call_id,
                 name=tool_name
             ))
