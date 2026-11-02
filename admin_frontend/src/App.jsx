@@ -26,7 +26,6 @@ import { AuditLogs } from './components/admin/AuditLogs';
 import { SystemSettings } from './components/admin/SystemSettings';
 import { PaymentsManager } from './components/admin/PaymentsManager';
 import { EvaluationStudio } from './components/admin/EvaluationStudio';
-import { MCPServerManager } from './components/admin/MCPServerManager';
 
 // Mock Data
 import {
@@ -161,7 +160,6 @@ export function App() {
     { id: 'payments', label: 'All Payments & Ledger', icon: CreditCard },
     { id: 'users', label: 'User Directory', icon: Users },
     { id: 'observability', label: 'Gateway Observability', icon: Activity },
-    { id: 'mcp', label: 'MCP Server Hub', icon: Server, badge: 'Host', badgeVariant: 'purple' },
     {
       id: 'hitl',
       label: 'HITL Review Queue',
@@ -326,9 +324,6 @@ export function App() {
               circuitBreakers={circuitBreakers}
               isLoadingMetrics={isLoadingMetrics}
             />
-          )}
-          {activeTab === 'mcp' && (
-            <MCPServerManager />
           )}
           {activeTab === 'hitl' && (
             <HITLQueue

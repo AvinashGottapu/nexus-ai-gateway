@@ -351,4 +351,62 @@ export async function postSecurityConfig(config) {
   }
 }
 
+// --- MODEL CONTEXT PROTOCOL (MCP) HOST MANAGEMENT API ---
+
+export async function getLiveMCPServers() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/mcp/servers`, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function addMCPServer(payload) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/mcp/servers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(12000)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function deleteMCPServer(serverName) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/mcp/servers/${encodeURIComponent(serverName)}`, {
+      method: 'DELETE',
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function toggleMCPServer(serverName) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/mcp/servers/${encodeURIComponent(serverName)}/toggle`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+
 

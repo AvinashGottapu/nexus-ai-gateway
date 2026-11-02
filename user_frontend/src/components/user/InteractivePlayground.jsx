@@ -10,20 +10,41 @@ import {
   Terminal,
   Layers,
   Activity,
-  Flame
+  Flame,
+  Server,
+  Wrench
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { AVAILABLE_MODELS } from '../../data/mockData';
-import { runLiveInference, runLiveStreamingInference } from '../../services/api';
+import { runLiveInference, runLiveStreamingInference, getLiveMCPServers } from '../../services/api';
 
-export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
+export const InteractivePlayground = ({ apiKeys, onRequestGenerated, onNavigateToMCP }) => {
   const [selectedKeyId, setSelectedKeyId] = useState(apiKeys[0]?.id || apiKeys[0]?.key_hash || '');
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
   const [prompt, setPrompt] = useState('What is the return policy for footwear within 30 days?');
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState(null);
+
+  // MCP Active Tools State
+  const [mcpSummary, setMcpSummary] = useState({ count: 0, tools: 0, loading: true });
+
+  useEffect(() => {
+    let isMounted = true;
+    getLiveMCPServers().then(res => {
+      if (isMounted && res.success && res.data) {
+        setMcpSummary({
+          count: res.data.total_connected || 0,
+          tools: res.data.total_tools_available || 0,
+          loading: false
+        });
+      }
+    }).catch(() => {
+      if (isMounted) setMcpSummary({ count: 0, tools: 0, loading: false });
+    });
+    return () => { isMounted = false; };
+  }, []);
 
   // Feature 2: Real-Time SSE Token Streaming State
   const [streamMode, setStreamMode] = useState(true);
@@ -65,7 +86,8 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
     { label: 'Auto: Reasoning & Math', text: 'Solve step-by-step: If a plane flies 500 mph with a 50 mph headwind for 2 hours, what is its ground distance covered?' },
     { label: 'Auto: Conversational / Fast', text: 'Give me 3 interesting facts about ancient Rome in 2 short bullet points.' },
     { label: 'Cache Hit Test (Shoe Policy)', text: 'What is the return policy for footwear within 30 days?' },
-    { label: 'PII Masking Test', text: 'My name is John Doe and my email is john.doe@acme.com. Please review my account.' }
+    { label: 'PII Masking Test', text: 'My name is John Doe and my email is john.doe@acme.com. Please review my account.' },
+    { label: 'MCP Tools: Gateway Telemetry', text: 'Use the available Nexus MCP tools to inspect real-time system metrics, cache hit rates, and gateway health.' }
   ];
 
   const handleRun = async () => {
@@ -201,7 +223,7 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
 
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-50 tracking-tight flex items-center gap-2">
             <span>Interactive Gateway Playground</span>
@@ -213,6 +235,25 @@ export const InteractivePlayground = ({ apiKeys, onRequestGenerated }) => {
             Real-time inference with sub-100ms Time-To-First-Token (TTFT), Presidio PII Masking, and Semantic Caching.
           </p>
         </div>
+
+        {/* MCP Active Tools Indicator Pill */}
+        {onNavigateToMCP && (
+          <button
+            onClick={onNavigateToMCP}
+            className="self-start sm:self-auto inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium bg-purple-50 hover:bg-purple-100/80 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 border border-purple-200 dark:border-purple-800/80 text-purple-700 dark:text-purple-300 transition-all shadow-xs group"
+            title="Configure Model Context Protocol (MCP) Servers and Tools"
+          >
+            <div className={`w-2 h-2 rounded-full ${mcpSummary.tools > 0 ? 'bg-emerald-500' : 'bg-purple-500'} animate-pulse`} />
+            <Server className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+            <span className="font-semibold">MCP Tools:</span>
+            <span className="text-purple-900 dark:text-purple-100">
+              {mcpSummary.loading ? 'Checking...' : `${mcpSummary.tools} Active Tools`}
+            </span>
+            <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-purple-200/70 dark:bg-purple-800/60 text-purple-800 dark:text-purple-200 font-bold group-hover:translate-x-0.5 transition-transform">
+              Tools Hub &rarr;
+            </span>
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">

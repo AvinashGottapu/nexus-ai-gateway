@@ -15,7 +15,8 @@ import {
   Sparkles,
   Info,
   ShieldCheck,
-  AlertCircle
+  AlertCircle,
+  Play
 } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { Card } from '../ui/Card';
@@ -28,7 +29,7 @@ import {
   toggleMCPServer
 } from '../../services/api';
 
-export function MCPServerManager() {
+export function MCPServerManager({ onSwitchToPlayground }) {
   const [servers, setServers] = useState([]);
   const [stats, setStats] = useState({ total_configured: 0, total_connected: 0, total_tools_available: 0 });
   const [isLoading, setIsLoading] = useState(true);
@@ -220,24 +221,35 @@ export function MCPServerManager() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Server className="w-5 h-5 text-purple-500" />
-              Model Context Protocol (MCP) Host Hub
+              <Server className="w-5 h-5 text-indigo-500" />
+              Model Context Protocol (MCP) Tools Hub
             </h1>
-            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-              Bi-Directional Hub
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+              Host Integration
             </span>
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Connect external MCP tool providers via local subprocess (<code className="text-zinc-700 dark:text-zinc-300">stdio</code>) or remote web streams (<code className="text-zinc-700 dark:text-zinc-300">SSE</code>). Discovered tools are dynamically bound to Groq, Gemini, and OpenAI.
+            Connect personal external MCP tools via local subprocess (<code className="text-zinc-700 dark:text-zinc-300">stdio</code>) or remote web streams (<code className="text-zinc-700 dark:text-zinc-300">SSE</code>). Discovered tools are available live in your Interactive Playground!
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {onSwitchToPlayground && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onSwitchToPlayground}
+              className="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10"
+            >
+              <Play className="w-3.5 h-3.5" />
+              Test in Playground
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
             onClick={fetchServers}
             disabled={isLoading}
-            className="flex items-center gap-1.5"
+            className="flex items-center gap-1.5 text-xs"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
@@ -245,7 +257,7 @@ export function MCPServerManager() {
           <Button
             size="sm"
             onClick={() => setIsModalOpen(true)}
-            className="bg-purple-600 hover:bg-purple-500 text-white flex items-center gap-1.5 shadow-xs"
+            className="bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 shadow-xs text-xs"
           >
             <Plus className="w-4 h-4" />
             Connect MCP Server
@@ -258,7 +270,7 @@ export function MCPServerManager() {
         <Card className="p-4 bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800">
           <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 text-xs font-medium">
             <span>Configured Servers</span>
-            <Server className="w-4 h-4 text-purple-500" />
+            <Server className="w-4 h-4 text-indigo-500" />
           </div>
           <div className="text-2xl font-bold mt-2 text-zinc-900 dark:text-zinc-100">
             {stats.total_configured}
@@ -297,15 +309,15 @@ export function MCPServerManager() {
 
         <Card className="p-4 bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800">
           <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 text-xs font-medium">
-            <span>Architecture Mode</span>
+            <span>Playground Tools</span>
             <ShieldCheck className="w-4 h-4 text-blue-500" />
           </div>
           <div className="text-sm font-bold mt-3 text-blue-500 flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-            Host + Server Hub
+            Multi-LLM Tool Calling
           </div>
           <div className="text-[11px] text-zinc-500 mt-1">
-            Cursor/Claude Inbound, Outbound Tools
+            Groq, Gemini & OpenAI
           </div>
         </Card>
       </div>
@@ -316,7 +328,7 @@ export function MCPServerManager() {
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-zinc-500" />
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Configured MCP Server Connections
+              Your MCP Server Connections
             </h2>
           </div>
           <span className="text-xs text-zinc-500">
@@ -329,12 +341,12 @@ export function MCPServerManager() {
             <Server className="w-10 h-10 text-zinc-400 mx-auto mb-3 opacity-60" />
             <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">No MCP Servers Connected</p>
             <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto">
-              Add a local subprocess or remote SSE server to give your LLMs superpowers like GitHub access, database querying, or web scraping.
+              Add a local subprocess or remote SSE server to give your AI models superpowers like GitHub access, database querying, or web scraping.
             </p>
             <Button
               size="sm"
               onClick={() => setIsModalOpen(true)}
-              className="mt-4 bg-purple-600 hover:bg-purple-500 text-white"
+              className="mt-4 bg-indigo-600 hover:bg-indigo-500 text-white"
             >
               <Plus className="w-4 h-4 mr-1.5" />
               Add First Server
@@ -368,7 +380,7 @@ export function MCPServerManager() {
                       {server.tools.map((toolName) => (
                         <span
                           key={toolName}
-                          className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-300 border border-purple-500/20"
+                          className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20"
                         >
                           {toolName}
                         </span>
@@ -421,35 +433,35 @@ export function MCPServerManager() {
               <button
                 type="button"
                 onClick={() => applyPreset('nexus-local')}
-                className="text-[11px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-purple-500/20 hover:text-purple-400 border border-zinc-200 dark:border-zinc-700 transition-colors"
+                className="text-[11px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-indigo-500/20 hover:text-indigo-400 border border-zinc-200 dark:border-zinc-700 transition-colors"
               >
                 ⚡ Nexus Local Gateway
               </button>
               <button
                 type="button"
                 onClick={() => applyPreset('fetch')}
-                className="text-[11px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-purple-500/20 hover:text-purple-400 border border-zinc-200 dark:border-zinc-700 transition-colors"
+                className="text-[11px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-indigo-500/20 hover:text-indigo-400 border border-zinc-200 dark:border-zinc-700 transition-colors"
               >
                 🌐 Web Fetch Server
               </button>
               <button
                 type="button"
                 onClick={() => applyPreset('github')}
-                className="text-[11px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-purple-500/20 hover:text-purple-400 border border-zinc-200 dark:border-zinc-700 transition-colors"
+                className="text-[11px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-indigo-500/20 hover:text-indigo-400 border border-zinc-200 dark:border-zinc-700 transition-colors"
               >
                 🐙 GitHub Server
               </button>
               <button
                 type="button"
                 onClick={() => applyPreset('postgres')}
-                className="text-[11px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-purple-500/20 hover:text-purple-400 border border-zinc-200 dark:border-zinc-700 transition-colors"
+                className="text-[11px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-indigo-500/20 hover:text-indigo-400 border border-zinc-200 dark:border-zinc-700 transition-colors"
               >
                 🐘 PostgreSQL Server
               </button>
               <button
                 type="button"
                 onClick={() => applyPreset('remote-example')}
-                className="text-[11px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-purple-500/20 hover:text-purple-400 border border-zinc-200 dark:border-zinc-700 transition-colors"
+                className="text-[11px] px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 hover:bg-indigo-500/20 hover:text-indigo-400 border border-zinc-200 dark:border-zinc-700 transition-colors"
               >
                 ☁️ Remote Cloud SSE
               </button>
@@ -467,7 +479,7 @@ export function MCPServerManager() {
                 onClick={() => setTransportType('stdio')}
                 className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-xs font-medium transition-all ${
                   transportType === 'stdio'
-                    ? 'border-purple-500 bg-purple-500/10 text-purple-400 font-semibold'
+                    ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400 font-semibold'
                     : 'border-zinc-200 dark:border-zinc-800 bg-zinc-100/50 dark:bg-zinc-800/40 text-zinc-500'
                 }`}
               >
@@ -479,7 +491,7 @@ export function MCPServerManager() {
                 onClick={() => setTransportType('sse')}
                 className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-xs font-medium transition-all ${
                   transportType === 'sse'
-                    ? 'border-purple-500 bg-purple-500/10 text-purple-400 font-semibold'
+                    ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400 font-semibold'
                     : 'border-zinc-200 dark:border-zinc-800 bg-zinc-100/50 dark:bg-zinc-800/40 text-zinc-500'
                 }`}
               >
@@ -500,7 +512,7 @@ export function MCPServerManager() {
               placeholder="e.g. web-fetch, github-tools, postgres"
               value={serverName}
               onChange={(e) => setServerName(e.target.value)}
-              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-purple-500"
+              className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-indigo-500"
             />
           </div>
 
@@ -517,7 +529,7 @@ export function MCPServerManager() {
                   placeholder="e.g. npx, python, node"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-purple-500"
+                  className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-indigo-500"
                 />
               </div>
 
@@ -530,7 +542,7 @@ export function MCPServerManager() {
                   placeholder="e.g. -y @modelcontextprotocol/server-github"
                   value={argsStr}
                   onChange={(e) => setArgsStr(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-purple-500"
+                  className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm font-mono text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-indigo-500"
                 />
               </div>
 
@@ -543,7 +555,7 @@ export function MCPServerManager() {
                   <button
                     type="button"
                     onClick={() => setEnvPairs([...envPairs, { key: '', value: '' }])}
-                    className="text-[11px] text-purple-400 hover:text-purple-300"
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300"
                   >
                     + Add Variable
                   </button>
@@ -587,7 +599,7 @@ export function MCPServerManager() {
                 placeholder="https://mcp.yourcompany.com/sse"
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
-                className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-purple-500"
+                className="w-full px-3 py-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:border-indigo-500"
               />
             </div>
           )}
@@ -606,7 +618,7 @@ export function MCPServerManager() {
               type="submit"
               size="sm"
               disabled={actionLoading === 'add'}
-              className="bg-purple-600 hover:bg-purple-500 text-white flex items-center gap-1.5"
+              className="bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5"
             >
               {actionLoading === 'add' ? (
                 <>

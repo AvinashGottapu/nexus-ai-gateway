@@ -21,6 +21,7 @@ import { UserDashboard } from './components/user/UserDashboard';
 import { RequestHistory } from './components/user/RequestHistory';
 import { KeyManager } from './components/user/KeyManager';
 import { InteractivePlayground } from './components/user/InteractivePlayground';
+import { MCPServerManager } from './components/user/MCPServerManager';
 import { BillingUsage } from './components/user/BillingUsage';
 import { SecuritySettings } from './components/user/SecuritySettings';
 
@@ -107,6 +108,7 @@ export function App() {
     { id: 'requests', label: 'My Requests', icon: Activity },
     { id: 'keys', label: 'API Keys', icon: KeyRound },
     { id: 'playground', label: 'Test Playground', icon: Terminal },
+    { id: 'mcp', label: 'MCP Tools Hub', icon: Server, badge: 'Host' },
     { id: 'billing', label: 'Billing & Usage', icon: CreditCard },
     { id: 'settings', label: 'Settings & Security', icon: Settings }
   ];
@@ -237,6 +239,11 @@ export function App() {
                       <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-zinc-400'}`} />
                       <span>{item.label}</span>
                     </div>
+                    {item.badge && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 font-semibold">
+                        {item.badge}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -287,7 +294,11 @@ export function App() {
             <InteractivePlayground
               apiKeys={apiKeys}
               onRequestGenerated={handleRequestGenerated}
+              onNavigateToMCP={() => setActiveTab('mcp')}
             />
+          )}
+          {activeTab === 'mcp' && (
+            <MCPServerManager onSwitchToPlayground={() => setActiveTab('playground')} />
           )}
           {activeTab === 'billing' && (
             <BillingUsage userMetrics={userMetrics} />
