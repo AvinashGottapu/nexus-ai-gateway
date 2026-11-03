@@ -503,6 +503,8 @@ async def chat(
         output_guard["passed"]
         and "Sensitive Operation Intercepted" not in final_answer
         and "Review Ticket #" not in final_answer
+        and not final_answer.strip().startswith("{")
+        and not final_answer.strip().startswith("[")
     ):
         await save_to_semantic_cache(safe_prompt, prompt_vector, final_answer, provider_used)
 
