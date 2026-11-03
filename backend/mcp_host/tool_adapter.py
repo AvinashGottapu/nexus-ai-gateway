@@ -135,5 +135,14 @@ async def execute_with_mcp_tools(
                 name=tool_name
             ))
 
-    # Fallback if max turns reached
+    # Fallback if max turns reached: if last message is a ToolMessage, synthesize a natural language response
+    if isinstance(messages[-1], ToolMessage):
+        logger.info("Agent reached max turns with ToolMessage; synthesizing final human-readable answer...")
+        messages.append(HumanMessage(content="Based on the tool results above, provide a clear, complete final summary for the user in clean markdown without raw JSON or database IDs."))
+        try:
+            synthesis = await model_instance.ainvoke(messages)
+            return getattr(synthesis, "content", str(synthesis)), tools_executed
+        except Exception as e:
+            logger.warning(f"Synthesis failed ({e}), returning last message content.")
+
     return getattr(messages[-1], "content", str(messages[-1])), tools_executed
