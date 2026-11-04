@@ -9,7 +9,7 @@ from langchain_core.messages import BaseMessage
 
 # Sibling modules inside the unified orchestrator folder:
 from orchestrator.hitl import create_human_review_ticket
-from orchestrator.rag import search_temporary_knowledge
+from orchestrator.rag import search_temporary_knowledge, has_active_knowledge, AUTO_RAG_THRESHOLD
 from orchestrator.model_gateway import (
     execute_model_gateway,
     execute_model_gateway_stream,
@@ -59,10 +59,9 @@ Classify the user prompt into exactly ONE primary category, and if 'general', ch
    - NOTE: Merely asking ABOUT policy (e.g., 'What is your refund policy on sale items?') is NOT high_risk; it is 'rag'.
    - NOTE: Standard developer tasks, Git/GitHub MCP operations (such as creating a repo, creating an issue, searching repositories, writing code) are 'general' with sub_intent 'coding', NOT high_risk!
 
-2. 'rag': The user is inquiring about company policies, product manuals, specs, pricing, shipping, or catalog facts AND THAT CONTEXT IS MISSING:
-   - Questions about returns, warranties, terms of service, shipping times where no reference context is given.
-   - Questions about product specs, documentation, or FAQs requiring external knowledge lookup.
-   - CRITICAL RULE: If the user ALREADY provided the reference context or passage directly inside the prompt, do NOT classify as 'rag'; classify as 'general' because the context is already present!
+2. 'rag': The user is inquiring about company policies, product manuals, specs, pricing, shipping, or catalog facts:
+   - Questions about returns, warranties, terms of service, shipping times.
+   - Questions about product specs, documentation, or FAQs requiring knowledge base lookup.
 
 3. 'general': General discussion, coding help, technical debugging, math/reasoning, greetings, creative tasks:
    If category is 'general', you MUST select one sub_intent:
@@ -163,27 +162,23 @@ async def classify_intent(prompt: str) -> IntentClassification:
 async def orchestrate_request(
     prompt: str,
     requested_model: Optional[str] = "auto",
-    inline_context: Optional[str] = None,
     max_tokens: int = 2048,
     chat_history: Optional[List[BaseMessage]] = None,
     intent_data: Optional[IntentClassification] = None,
-    enable_mcp: bool = True
+    enable_mcp: bool = True,
+    prompt_vector: Optional[List[float]] = None
 ) -> Dict[str, Any]:
     """
     04 Router + Orchestrator:
     Dispatches execution paths based on classified intent:
     - Branch 1: 'high_risk' -> 08 Human in the Loop (Halt LLM, create approval ticket)
-    - Branch 2: 'rag'       -> 05 Retrieval / RAG (Augment prompt with inline or 2-hour knowledge context)
+    - Branch 2: 'rag'       -> 05 Retrieval / RAG (Augment prompt with 2-hour Redis knowledge context or Vector-Threshold Auto-RAG)
     - Branch 3: 'general'   -> 07 Model Gateway (Token budgets, retries, and fallback cascade)
     """
     # 1. Classify intent via fast structured output (or reuse pre-timed classification)
     if intent_data is None:
         intent_data = await classify_intent(prompt)
     category = intent_data.category
-
-    # If the user explicitly provided inline context in the request, prioritize RAG intent
-    if inline_context and inline_context.strip():
-        category = IntentCategory.RAG
 
     # ==========================================================
     # BRANCH 1: HIGH RISK (08 Human in the Loop)
@@ -212,33 +207,40 @@ async def orchestrate_request(
         }
 
     # ==========================================================
-    # BRANCH 2: 05 RETRIEVAL / RAG (Grounding Context)
+    # BRANCH 2: 05 RETRIEVAL / RAG (Vector-Threshold Auto-RAG)
     # ==========================================================
     execution_prompt = prompt
     sources_used = []
+    retrieved_context_str = None
+    auto_rag_promoted = False
 
-    # Priority A: If user passed inline context directly in request (Zero vector search latency!)
-    if inline_context and inline_context.strip():
-        sources_used = ["inline_request_context"]
-        execution_prompt = (
-            f"You are a helpful assistant. Use ONLY the following provided context to answer the user's question:\n"
-            f"<context>\n{inline_context.strip()}\n</context>\n\n"
-            f"User Question: {prompt}\n\n"
-            f"Please cite your sources based on the context above."
-        )
+    # Check Vector-Threshold Auto-RAG:
+    # If the user prompt matches active Redis chunks with high similarity (>= AUTO_RAG_THRESHOLD),
+    # auto-promote the query to RAG even if the intent classifier classified it as general!
+    if category != IntentCategory.HIGH_RISK:
+        is_explicit_rag = (category == IntentCategory.RAG)
+        threshold = 0.65 if is_explicit_rag else AUTO_RAG_THRESHOLD
 
-    # Priority B: Query the 2-Hour Redis Knowledge Store if intent is RAG
-    elif category == IntentCategory.RAG:
-        retrieved_chunks = await search_temporary_knowledge(prompt, top_k=2)
-        if retrieved_chunks:
-            sources_used = list(set([c["source"] for c in retrieved_chunks]))
-            context_block = "\n\n".join([f"[{c['source']}]: {c['chunk_text']}" for c in retrieved_chunks])
-            execution_prompt = (
-                f"You are a helpful assistant. Use ONLY the following verified context (stored temporarily for 2 hours) to answer the user's question:\n"
-                f"<context>\n{context_block}\n</context>\n\n"
-                f"User Question: {prompt}\n\n"
-                f"Please cite your sources based on the context above."
+        # Query Redis if intent is explicitly RAG or if active documents exist in Redis
+        if is_explicit_rag or (await has_active_knowledge()):
+            retrieved_chunks = await search_temporary_knowledge(
+                query=prompt,
+                top_k=2,
+                min_similarity=threshold,
+                query_vector=prompt_vector
             )
+            if retrieved_chunks:
+                if not is_explicit_rag:
+                    category = IntentCategory.RAG
+                    auto_rag_promoted = True
+                sources_used = list(set([c["source"] for c in retrieved_chunks]))
+                retrieved_context_str = "\n\n".join([f"[{c['source']}]: {c['chunk_text']}" for c in retrieved_chunks])
+                execution_prompt = (
+                    f"You are a helpful assistant. Use ONLY the following verified context (stored temporarily for 2 hours) to answer the user's question:\n"
+                    f"<context>\n{retrieved_context_str}\n</context>\n\n"
+                    f"User Question: {prompt}\n\n"
+                    f"Please cite your sources based on the context above."
+                )
 
     # ==========================================================
     # BRANCH 3: 07 MODEL GATEWAY (Token Budgets, Retries & Dynamic Sub-Intent)
@@ -265,6 +267,8 @@ async def orchestrate_request(
         "intent_reasoning": intent_data.reasoning,
         "ticket_id": None,
         "sources_used": sources_used,
+        "retrieved_context": retrieved_context_str,
+        "auto_rag_promoted": auto_rag_promoted,
         "provider_used": gateway_result["provider_used"],
         "failover_triggered": gateway_result["failover_triggered"],
         "routing_decision": routing_sla,
@@ -280,10 +284,10 @@ async def orchestrate_request(
 async def orchestrate_request_stream(
     prompt: str,
     requested_model: Optional[str] = "auto",
-    inline_context: Optional[str] = None,
     max_tokens: int = 2048,
     chat_history: Optional[List[BaseMessage]] = None,
-    intent_data: Optional[IntentClassification] = None
+    intent_data: Optional[IntentClassification] = None,
+    prompt_vector: Optional[List[float]] = None
 ):
     """
     Asynchronous streaming router yielding token-by-token events with sub-100ms TTFT.
@@ -291,9 +295,6 @@ async def orchestrate_request_stream(
     if intent_data is None:
         intent_data = await classify_intent(prompt)
     category = intent_data.category
-
-    if inline_context and inline_context.strip():
-        category = IntentCategory.RAG
 
     # Branch 1: High-Risk Intent (Halt streaming, issue human review ticket immediately)
     if category == IntentCategory.HIGH_RISK:
@@ -314,25 +315,32 @@ async def orchestrate_request_stream(
         }
         return
 
-    # Branch 2: Context Augmentation
+    # Branch 2: Context Augmentation & Vector-Threshold Auto-RAG
     execution_prompt = prompt
-    if inline_context and inline_context.strip():
-        execution_prompt = (
-            f"You are a helpful assistant. Use ONLY the following provided context to answer the user's question:\n"
-            f"<context>\n{inline_context.strip()}\n</context>\n\n"
-            f"User Question: {prompt}\n\n"
-            f"Please cite your sources based on the context above."
-        )
-    elif category == IntentCategory.RAG:
-        retrieved_chunks = await search_temporary_knowledge(prompt, top_k=2)
-        if retrieved_chunks:
-            context_block = "\n\n".join([f"[{c['source']}]: {c['chunk_text']}" for c in retrieved_chunks])
-            execution_prompt = (
-                f"You are a helpful assistant. Use ONLY the following verified context (stored temporarily for 2 hours) to answer the user's question:\n"
-                f"<context>\n{context_block}\n</context>\n\n"
-                f"User Question: {prompt}\n\n"
-                f"Please cite your sources based on the context above."
+    auto_rag_promoted = False
+
+    if category != IntentCategory.HIGH_RISK:
+        is_explicit_rag = (category == IntentCategory.RAG)
+        threshold = 0.65 if is_explicit_rag else AUTO_RAG_THRESHOLD
+
+        if is_explicit_rag or (await has_active_knowledge()):
+            retrieved_chunks = await search_temporary_knowledge(
+                query=prompt,
+                top_k=2,
+                min_similarity=threshold,
+                query_vector=prompt_vector
             )
+            if retrieved_chunks:
+                if not is_explicit_rag:
+                    category = IntentCategory.RAG
+                    auto_rag_promoted = True
+                context_block = "\n\n".join([f"[{c['source']}]: {c['chunk_text']}" for c in retrieved_chunks])
+                execution_prompt = (
+                    f"You are a helpful assistant. Use ONLY the following verified context (stored temporarily for 2 hours) to answer the user's question:\n"
+                    f"<context>\n{context_block}\n</context>\n\n"
+                    f"User Question: {prompt}\n\n"
+                    f"Please cite your sources based on the context above."
+                )
 
     # Branch 3: Yield streamed tokens from Model Gateway
     sub_intent_val = intent_data.sub_intent.value if intent_data.sub_intent else None
@@ -351,6 +359,7 @@ async def orchestrate_request_stream(
             "failover_triggered": chunk.get("failover_triggered", False),
             "intent": category.value,
             "sub_intent": sub_intent_val,
+            "auto_rag_promoted": auto_rag_promoted,
             "routing_decision": routing_sla,
             "savings_badge": routing_sla["savings_badge"],
             "done": False

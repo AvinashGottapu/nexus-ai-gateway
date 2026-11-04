@@ -94,7 +94,6 @@ app.add_middleware(
 class PromptRequest(BaseModel):
     prompt: str
     provider: Optional[str] = "groq"  # "groq", "openai", "gemini"
-    context: Optional[str] = None  # Optional inline lines of information (stored 2 hours)
     session_id: Optional[str] = None  # Layer C: Per-user multi-turn conversation session ID
 
 class IngestKnowledgeRequest(BaseModel):
@@ -396,7 +395,7 @@ async def chat(
         guard_output = await apply_output_guardrails(
             user_prompt=req.prompt,
             draft_answer=cached_result["response"],
-            retrieved_context=req.context
+            retrieved_context=None
         )
         timer.record_phase("output_guardrails_ms")
 
@@ -458,9 +457,9 @@ async def chat(
     orch_result = await orchestrate_request(
         prompt=safe_prompt, 
         requested_model=req.provider,
-        inline_context=req.context,
         chat_history=chat_history,
-        intent_data=intent_data
+        intent_data=intent_data,
+        prompt_vector=prompt_vector
     )  # ainvoke => async invoke..
     timer.record_phase("orchestrator_llm_ms")
 
@@ -493,7 +492,7 @@ async def chat(
     output_guard = await apply_output_guardrails(
         user_prompt=req.prompt,
         draft_answer=answer_text,
-        retrieved_context=req.context
+        retrieved_context=orch_result.get("retrieved_context")
     )
     final_answer = output_guard["sanitized_response"]
     timer.record_phase("output_guardrails_ms")
@@ -544,6 +543,7 @@ async def chat(
         "provider": provider_used,
         "intent": orch_result["intent"],
         "sub_intent": orch_result.get("sub_intent"),
+        "auto_rag_promoted": orch_result.get("auto_rag_promoted", False),
         "routing_decision": orch_result.get("routing_decision"),
         "savings_badge": orch_result.get("savings_badge"),
         "intent_confidence": orch_result.get("intent_confidence", 1.0),
@@ -673,10 +673,10 @@ async def chat_stream(
         async for chunk in orchestrate_request_stream(
             prompt=safe_prompt,
             requested_model=req.provider,
-            inline_context=req.context,
             max_tokens=2048,
             chat_history=chat_history,
-            intent_data=intent_data
+            intent_data=intent_data,
+            prompt_vector=prompt_vector
         ):
             if not first_token_sent:
                 ttft_ms = round((time.perf_counter() - timer.start_time) * 1000, 1)
@@ -695,8 +695,9 @@ async def chat_stream(
                 "provider": provider_used,
                 "failover_triggered": failover_active,
                 "cache_hit": False,
-                "intent": intent_data.category.value,
+                "intent": chunk.get("intent", intent_data.category.value),
                 "sub_intent": sub_intent_val,
+                "auto_rag_promoted": chunk.get("auto_rag_promoted", False),
                 "routing_decision": routing_sla,
                 "savings_badge": routing_sla.get("savings_badge") if routing_sla else None,
                 "done": chunk.get("done", False),

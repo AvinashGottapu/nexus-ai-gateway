@@ -146,7 +146,16 @@ class MCPClient:
     async def _start_stdio(self) -> None:
         """Launches the external MCP server child process over standard I/O."""
         merged_env = os.environ.copy()
-        merged_env.update(self.env) # Copies existing system environment variables and merges in any custom tokens
+        # Merge custom env overrides safely without blanking out system/.env variables
+        for k, v in self.env.items():
+            if v and v.strip():
+                if v.startswith("${") and v.endswith("}"):
+                    var_name = v[2:-1]
+                    merged_env[k] = os.environ.get(var_name, "")
+                else:
+                    merged_env[k] = v
+            elif k in os.environ:
+                merged_env[k] = os.environ[k]
         merged_env["PYTHONIOENCODING"] = "utf-8" # Guarantees emojis, special characters, and Unicode don't crash the Windows pipe.
         merged_env["PYTHONUNBUFFERED"] = "1" # Forces the child process to send its output immediately
 

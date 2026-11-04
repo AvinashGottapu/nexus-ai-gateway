@@ -9,6 +9,22 @@ from cache.semantic_cache import get_embedding, cosine_similarity
 # 2 Hours TTL = 7,200 seconds (Auto-wiped from Redis when expired)
 DEFAULT_RAG_TTL = 7200
 
+# Vector-Threshold Auto-RAG: Automatically promote general queries to RAG
+# if cosine similarity against active Redis document chunks meets or exceeds this threshold.
+AUTO_RAG_THRESHOLD = float(os.getenv("AUTO_RAG_THRESHOLD", "0.70"))
+
+
+async def has_active_knowledge(key_prefix: str = "global") -> bool:
+    """
+    Fast check: returns True if any active 2-hour knowledge chunks exist in Redis.
+    """
+    try:
+        r = await get_redis_client()
+        keys = await r.keys(f"rag:{key_prefix}:*")
+        return len(keys) > 0
+    except Exception:
+        return False
+
 
 def chunk_text(text: str, chunk_size: int = 400, overlap: int = 50) -> List[str]:
     """
@@ -79,12 +95,15 @@ async def search_temporary_knowledge(
     query: str,
     key_prefix: str = "global",
     top_k: int = 2,
-    min_similarity: float = 0.65
+    min_similarity: float = 0.65,
+    query_vector: Optional[List[float]] = None
 ) -> List[Dict[str, Any]]:
     """
     Searches active 2-hour knowledge chunks in Redis using Cosine Similarity.
+    Reuses pre-computed query_vector (e.g. from semantic cache) to avoid re-embedding.
     """
-    query_vector = await get_embedding(query)
+    if not query_vector:
+        query_vector = await get_embedding(query)
     if not query_vector:
         return []
 
