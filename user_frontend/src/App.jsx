@@ -12,7 +12,8 @@ import {
   ChevronDown,
   Sun,
   Moon,
-  ExternalLink
+  ExternalLink,
+  BookOpen
 } from 'lucide-react';
 import { Badge } from './components/ui/Badge';
 
@@ -24,6 +25,7 @@ import { InteractivePlayground } from './components/user/InteractivePlayground';
 import { MCPServerManager } from './components/user/MCPServerManager';
 import { BillingUsage } from './components/user/BillingUsage';
 import { SecuritySettings } from './components/user/SecuritySettings';
+import { ApiDocs } from './components/user/ApiDocs';
 
 // Mock Data
 import {
@@ -128,6 +130,7 @@ export function App() {
     { id: 'requests', label: 'My Requests', icon: Activity },
     { id: 'keys', label: 'API Keys', icon: KeyRound },
     { id: 'playground', label: 'Test Playground', icon: Terminal },
+    { id: 'docs', label: 'API Documentation', icon: BookOpen, badge: 'REST' },
     { id: 'mcp', label: 'MCP Tools Hub', icon: Server, badge: 'Host' },
     { id: 'billing', label: 'Billing & Usage', icon: CreditCard },
     { id: 'settings', label: 'Settings & Security', icon: Settings }
@@ -316,6 +319,9 @@ export function App() {
               onRequestGenerated={handleRequestGenerated}
               onNavigateToMCP={() => setActiveTab('mcp')}
             />
+          )}
+          {activeTab === 'docs' && (
+            <ApiDocs apiKeys={apiKeys} />
           )}
           {activeTab === 'mcp' && (
             <MCPServerManager onSwitchToPlayground={() => setActiveTab('playground')} />

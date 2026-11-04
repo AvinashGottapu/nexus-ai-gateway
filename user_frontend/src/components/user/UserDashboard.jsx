@@ -172,10 +172,8 @@ export const UserDashboard = ({
           </div>
         </button>
 
-        <a
-          href="https://github.com/AvinashGottapu/nexus-ai-gateway"
-          target="_blank"
-          rel="noreferrer"
+        <button
+          onClick={() => setActiveTab('docs')}
           className="p-4 rounded-xl text-left bg-white dark:bg-zinc-900/70 border border-zinc-200/80 dark:border-zinc-800/80 hover:border-indigo-500/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-all group"
         >
           <div className="flex items-center justify-between">
@@ -183,12 +181,12 @@ export const UserDashboard = ({
             <ArrowUpRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-amber-400 transition-colors" />
           </div>
           <div className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mt-2">
-            Gateway OpenAPI Documentation
+            Gateway API Documentation
           </div>
           <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Explore /v1/chat/completions schema and error codes.
+            Interactive code snippets, streaming SSE, and RAG guides.
           </div>
-        </a>
+        </button>
       </div>
 
       {/* Recent Request Activity Table */}
