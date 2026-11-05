@@ -5,8 +5,21 @@ import math
 import time
 from typing import Optional, Dict, Any, List, Tuple
 from dotenv import load_dotenv
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_openai import OpenAIEmbeddings
+try:
+    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+except ImportError:
+    GoogleGenerativeAIEmbeddings = None
+
+try:
+    from langchain_openai import OpenAIEmbeddings
+except ImportError:
+    OpenAIEmbeddings = None
+
+try:
+    from fastembed import TextEmbedding
+    _fastembed_model = None
+except ImportError:
+    _fastembed_model = None
 
 # Ensure Windows stdout safely prints UTF-8 logs
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -56,6 +69,18 @@ async def get_embedding(text: str) -> List[float]:
             return await embedder.aembed_query(text)
         except Exception as e:
             pass
+
+    # 3. Try Local FastEmbed ONNX Embeddings (Zero API cost & local execution)
+    global _fastembed_model
+    try:
+        if _fastembed_model is None:
+            from fastembed import TextEmbedding
+            _fastembed_model = TextEmbedding()
+        embeddings = list(_fastembed_model.embed([text]))
+        if embeddings:
+            return embeddings[0].tolist()
+    except Exception:
+        pass
 
     # If no key available or failed, return empty list
     return []

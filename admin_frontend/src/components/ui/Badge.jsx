@@ -12,6 +12,7 @@ export const Badge = ({
     warning: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
     destructive: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
     info: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
+    purple: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20',
     neutral: 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20'
   }[variant] || 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20';
 
@@ -20,6 +21,7 @@ export const Badge = ({
     warning: 'bg-amber-500',
     destructive: 'bg-rose-500',
     info: 'bg-indigo-500',
+    purple: 'bg-purple-500',
     neutral: 'bg-zinc-400'
   }[variant] || 'bg-zinc-400';
 

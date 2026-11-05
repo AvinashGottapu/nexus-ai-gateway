@@ -10,7 +10,7 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -353,6 +353,42 @@ async def ingest_knowledge_document(
         source_name=req.source_name,
         ttl_seconds=7200
     )
+
+
+@app.post("/v1/rag/upload")
+async def upload_and_ingest_file(
+    file: UploadFile = File(...),
+    source_name: Optional[str] = Form(None),
+    ttl_seconds: int = Form(7200),
+    client_info: Dict[str, Any] = Depends(verify_api_gateway)
+):
+    """
+    Direct File Ingestion into 2-Hour Redis Ephemeral Knowledge Store:
+    Uploads a document file (.txt, .md, .json, .csv, .py, etc.) directly into Redis.
+    Guaranteed auto-expiration and cleanup after 2 hours!
+    """
+    try:
+        content_bytes = await file.read()
+        try:
+            text_content = content_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            text_content = content_bytes.decode("latin-1", errors="replace")
+
+        final_source = source_name.strip() if source_name and source_name.strip() else file.filename
+        
+        result = await ingest_temporary_knowledge(
+            text=text_content,
+            source_name=final_source,
+            ttl_seconds=ttl_seconds
+        )
+        result["file_name"] = file.filename
+        result["file_size_bytes"] = len(content_bytes)
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "file_ingest_failed", "message": f"Could not process and ingest file: {str(e)}"}
+        )
 
 
 # --- PROTECTED INFERENCE ENDPOINT ---
@@ -793,6 +829,7 @@ async def gateway_telemetry():
 # --- LAYER D: EVALUATION & USER FEEDBACK ---
 
 from eval.golden_set import run_golden_set_suite, get_latest_benchmark_run, get_benchmark_history
+from eval.rag_eval import run_rag_golden_suite, get_latest_rag_eval_run, get_rag_eval_history
 
 class BenchmarkRunRequest(BaseModel):
     provider: Optional[str] = "all"
@@ -821,6 +858,41 @@ def get_eval_benchmark_history():
     Layer D: Automated Evals Studio - Returns historical benchmark runs for trend analysis.
     """
     return get_benchmark_history()
+
+
+# --- RAG GOLDEN EVALUATION & RAGAS BENCHMARK ENDPOINTS ---
+
+@app.post("/v1/eval/rag/run")
+async def execute_rag_golden_benchmark():
+    """
+    Executes the comprehensive RAG Golden Evaluation Suite:
+    Tests the full RAG pipeline across golden test cases and scores:
+    1. Faithfulness (Groundedness)
+    2. Answer Relevance
+    3. Context Precision
+    4. Context Recall
+    5. Answer Correctness
+    """
+    return await run_rag_golden_suite()
+
+
+@app.get("/v1/eval/rag/latest")
+def get_latest_rag_evaluation_scorecard():
+    """
+    Returns the most recent RAG evaluation scorecard and metrics.
+    """
+    latest = get_latest_rag_eval_run()
+    if not latest:
+        return {"status": "no_runs_yet", "message": "No RAG evaluation runs recorded. Run POST /v1/eval/rag/run to generate one."}
+    return latest
+
+
+@app.get("/v1/eval/rag/history")
+def get_rag_evaluation_history(limit: int = 10):
+    """
+    Returns historical RAG evaluation summary runs.
+    """
+    return get_rag_eval_history(limit=limit)
 
 
 @app.post("/v1/feedback")

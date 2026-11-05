@@ -13,7 +13,9 @@ import {
   ChevronDown,
   AlertTriangle,
   CreditCard,
-  Award
+  Award,
+  Brain,
+  Database
 } from 'lucide-react';
 import { Badge } from './components/ui/Badge';
 
@@ -156,7 +158,8 @@ export function App() {
 
   const navItems = [
     { id: 'overview', label: 'System Overview', icon: LayoutDashboard },
-    { id: 'evals', label: 'Evals & Benchmarks', icon: Award, badge: 'Live', badgeVariant: 'success' },
+    { id: 'evals', label: 'LLM Evals', icon: Brain },
+    { id: 'rag-evals', label: 'RAG Evals', icon: Database, badge: 'Ragas', badgeVariant: 'purple' },
     { id: 'payments', label: 'All Payments & Ledger', icon: CreditCard },
     { id: 'users', label: 'User Directory', icon: Users },
     { id: 'observability', label: 'Gateway Observability', icon: Activity },
@@ -307,7 +310,16 @@ export function App() {
             />
           )}
           {activeTab === 'evals' && (
-            <EvaluationStudio />
+            <EvaluationStudio
+              initialBlock="llm"
+              onSwitchBlock={(blk) => setActiveTab(blk === 'rag' ? 'rag-evals' : 'evals')}
+            />
+          )}
+          {activeTab === 'rag-evals' && (
+            <EvaluationStudio
+              initialBlock="rag"
+              onSwitchBlock={(blk) => setActiveTab(blk === 'rag' ? 'rag-evals' : 'evals')}
+            />
           )}
           {activeTab === 'payments' && (
             <PaymentsManager />

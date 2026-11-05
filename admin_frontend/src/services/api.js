@@ -194,5 +194,44 @@ export async function getLiveBenchmarkHistory() {
   }
 }
 
+// --- RAG GOLDEN EVALUATION & RAGAS METRICS ---
+
+export async function getLiveRagScorecard() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/eval/rag/latest`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function runRagGoldenBenchmark() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/eval/rag/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(35000)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function getLiveRagHistory() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/v1/eval/rag/history`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 
 

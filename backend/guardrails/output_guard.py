@@ -130,7 +130,7 @@ async def check_hallucination(context: str, draft_answer: str) -> bool:
 
     try:
         evaluator_llm = ChatGroq(
-            model="llama-3.1-8b-instant",
+            model="openai/gpt-oss-120b",
             api_key=api_key,
             temperature=0.0,
             timeout=4.0

@@ -1,9 +1,17 @@
 import os
+import re
 from typing import Dict, Any, Optional
 from fastapi import HTTPException, status
 from langchain_groq import ChatGroq
-from presidio_analyzer import AnalyzerEngine
-from presidio_anonymizer import AnonymizerEngine
+
+try:
+    from presidio_analyzer import AnalyzerEngine
+    from presidio_anonymizer import AnonymizerEngine
+    HAS_PRESIDIO = True
+except ImportError:
+    AnalyzerEngine = None
+    AnonymizerEngine = None
+    HAS_PRESIDIO = False
 
 # 14 Official Meta Llama Guard Hazard Categories (MLCommons Taxonomy)
 HAZARD_CATEGORIES = {
@@ -32,6 +40,8 @@ _anonymizer: Optional[AnonymizerEngine] = None
 def get_presidio():
     """Returns singleton instances of Microsoft Presidio engines."""
     global _analyzer, _anonymizer
+    if not HAS_PRESIDIO:
+        return None, None
     if _analyzer is None:
         _analyzer = AnalyzerEngine()
         _anonymizer = AnonymizerEngine()
@@ -73,6 +83,17 @@ def mask_pii_presidio(text: str) -> str:
 
     if not entities:
         return text
+
+    if not HAS_PRESIDIO:
+        # Regex-based zero-dependency fallback
+        sanitized = text
+        if "EMAIL_ADDRESS" in entities:
+            sanitized = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '<EMAIL_ADDRESS>', sanitized)
+        if "PHONE_NUMBER" in entities:
+            sanitized = re.sub(r'\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b', '<PHONE_NUMBER>', sanitized)
+        if "CREDIT_CARD" in entities:
+            sanitized = re.sub(r'\b(?:\d{4}[-\s]?){3}\d{4}\b', '<CREDIT_CARD>', sanitized)
+        return sanitized
 
     analyzer, anonymizer = get_presidio()
 
