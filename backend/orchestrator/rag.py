@@ -132,7 +132,72 @@ def apply_reciprocal_rank_fusion(
 
 
 # =====================================================================
-# 3. RAG LIFECYCLE: INGESTION, CHUNKING & HYBRID RETRIEVAL
+# 3. CROSS-ENCODER RE-RANKING (Full Transformer Cross-Attention)
+# =====================================================================
+
+_flashrank_ranker = None
+
+def get_cross_encoder_ranker():
+    """Singleton getter for the local Cross-Encoder ONNX model."""
+    global _flashrank_ranker
+    if _flashrank_ranker is None:
+        try:
+            from flashrank import Ranker
+            _flashrank_ranker = Ranker(model_name="ms-marco-TinyBERT-L-2-v2")
+        except Exception:
+            _flashrank_ranker = None
+    return _flashrank_ranker
+
+
+def rerank_with_cross_encoder(
+    query: str,
+    candidate_chunks: List[Dict[str, Any]],
+    top_k: int = 2
+) -> List[Dict[str, Any]]:
+    """
+    Evaluates (query, document) pairs simultaneously with full cross-attention.
+    Captures subtle nuances (negations, subject/object roles) and re-sorts candidates.
+    """
+    if not candidate_chunks:
+        return []
+
+    if len(candidate_chunks) <= 1:
+        item = candidate_chunks[0].copy()
+        item["rerank_score"] = 1.0
+        item["retrieval_method"] = "2-stage (hybrid_rrf + cross_encoder_rerank)"
+        return [item]
+
+    ranker = get_cross_encoder_ranker()
+    if not ranker:
+        return candidate_chunks[:top_k]
+
+    try:
+        from flashrank import RerankRequest
+        passages = [
+            {"id": str(i), "text": c["chunk_text"]}
+            for i, c in enumerate(candidate_chunks)
+        ]
+        request = RerankRequest(query=query, passages=passages)
+        reranked_results = ranker.rerank(request)
+        # Ensure descending order by cross-encoder score
+        reranked_results = sorted(reranked_results, key=lambda x: x.get("score", 0.0), reverse=True)
+
+        final_chunks: List[Dict[str, Any]] = []
+        for r in reranked_results[:top_k]:
+            idx = int(r["id"])
+            chunk = candidate_chunks[idx].copy()
+            chunk["rerank_score"] = round(float(r["score"]), 4)
+            chunk["retrieval_method"] = "2-stage (hybrid_rrf + cross_encoder_rerank)"
+            final_chunks.append(chunk)
+
+        return final_chunks
+    except Exception as e:
+        print(f"⚠️ Cross-encoder reranking notice ({e}). Utilizing hybrid RRF ranking.")
+        return candidate_chunks[:top_k]
+
+
+# =====================================================================
+# 4. RAG LIFECYCLE: INGESTION, CHUNKING & HYBRID RETRIEVAL
 # =====================================================================
 
 async def has_active_knowledge(key_prefix: str = "global") -> bool:
@@ -287,21 +352,30 @@ async def search_temporary_knowledge(
     # Sort descending by BM25 keyword score
     bm25_ranked = sorted(bm25_scored, key=lambda x: x["bm25_score"], reverse=True)
 
-    # 5. Merge using Reciprocal Rank Fusion (RRF)
-    # Filter candidate pool so completely irrelevant chunks (zero keyword match & low vector sim) are excluded
+    # 5. Merge using Reciprocal Rank Fusion (RRF) to form candidate pool
+    # Retrieve a wider pool (up to 8 candidates) for deep Cross-Encoder inspection
+    candidate_pool_size = max(top_k * 3, 6)
     candidates_vector = [c for c in vector_ranked if c["similarity_score"] >= (min_similarity - 0.20)]
     candidates_bm25 = [c for c in bm25_ranked if c["bm25_score"] > 0.0 or c["similarity_score"] >= min_similarity]
 
     # If both candidate filters empty, use top vector ranked as fallback
     if not candidates_vector and not candidates_bm25:
-        candidates_vector = vector_ranked[:top_k]
-        candidates_bm25 = bm25_ranked[:top_k]
+        candidates_vector = vector_ranked[:candidate_pool_size]
+        candidates_bm25 = bm25_ranked[:candidate_pool_size]
 
-    fused_chunks = apply_reciprocal_rank_fusion(
+    hybrid_candidates = apply_reciprocal_rank_fusion(
         vector_ranked=candidates_vector,
         bm25_ranked=candidates_bm25,
         k=RRF_K_CONSTANT,
+        top_k=candidate_pool_size
+    )
+
+    # 6. Stage 2: Deep Cross-Encoder Re-Ranking (Full Attention)
+    # Re-evaluates (query, passage) pairs and sorts by exact semantic relevance
+    final_chunks = rerank_with_cross_encoder(
+        query=query,
+        candidate_chunks=hybrid_candidates,
         top_k=top_k
     )
 
-    return fused_chunks
+    return final_chunks

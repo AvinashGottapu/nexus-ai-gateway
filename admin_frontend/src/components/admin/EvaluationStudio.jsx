@@ -970,7 +970,7 @@ export function EvaluationStudio({ initialBlock = 'llm', onSwitchBlock }) {
                             <div className="flex items-center justify-between">
                               <span className="text-[10px] text-purple-400 uppercase font-semibold">Retrieved Chunks from Redis (2-Hour Ephemeral Store)</span>
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/50">
-                                Hybrid RRF (Vector + BM25)
+                                2-Stage (Hybrid RRF + Cross-Encoder)
                               </span>
                             </div>
                             <div className="text-[11px] text-zinc-300 whitespace-pre-wrap">
