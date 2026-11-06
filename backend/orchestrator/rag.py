@@ -6,6 +6,7 @@ import time
 import secrets
 from collections import Counter
 from typing import List, Dict, Any, Optional
+import numpy as np
 from gateway.identity import get_redis_client
 from cache.semantic_cache import get_embedding, cosine_similarity
 
@@ -322,16 +323,30 @@ async def search_temporary_knowledge(
     if not all_chunks:
         return []
 
-    # 3. Dense Vector Ranking (Cosine Similarity)
+    # 3. Dense Vector Ranking (High-Speed NumPy Matrix Cosine Similarity)
     vector_scored = []
-    for c in all_chunks:
-        score = 0.0
-        if query_vector and c["vector"]:
-            score = cosine_similarity(query_vector, c["vector"])
-        vector_scored.append({
-            **c,
-            "similarity_score": round(score, 4)
-        })
+    if query_vector and any(c.get("vector") for c in all_chunks):
+        valid_vector_chunks = [c for c in all_chunks if c.get("vector") and len(c.get("vector")) == len(query_vector)]
+        if valid_vector_chunks:
+            mat = np.array([c["vector"] for c in valid_vector_chunks], dtype=np.float32)
+            q_v = np.array(query_vector, dtype=np.float32)
+            norms = np.linalg.norm(mat, axis=1) * np.linalg.norm(q_v)
+            scores = (np.dot(mat, q_v) / np.maximum(norms, 1e-9)).tolist()
+
+            for chunk, score in zip(valid_vector_chunks, scores):
+                vector_scored.append({
+                    **chunk,
+                    "similarity_score": round(float(score), 4)
+                })
+
+        # Default any non-matching/corrupted chunks to 0.0
+        missing_chunks = [c for c in all_chunks if c not in valid_vector_chunks]
+        for c in missing_chunks:
+            vector_scored.append({**c, "similarity_score": 0.0})
+    else:
+        for c in all_chunks:
+            vector_scored.append({**c, "similarity_score": 0.0})
+
     # Sort descending by vector similarity
     vector_ranked = sorted(vector_scored, key=lambda x: x["similarity_score"], reverse=True)
 

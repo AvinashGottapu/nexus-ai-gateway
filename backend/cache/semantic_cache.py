@@ -3,6 +3,7 @@ import sys
 import json
 import math
 import time
+import numpy as np
 from typing import Optional, Dict, Any, List, Tuple
 from dotenv import load_dotenv
 try:
@@ -136,30 +137,32 @@ async def check_semantic_cache(
         else:
             raw_items = [await r.get(k) for k in keys]
 
-        best_match = None
-        highest_similarity = 0.0
+        # Parse items from raw Redis JSON and filter valid vectors
+        items = [json.loads(r) for r in raw_items if r]
+        valid_items = [it for it in items if it.get("vector") and len(it.get("vector")) == len(prompt_vector)]
 
-        for raw_data in raw_items:
-            if not raw_data:
-                continue
+        if not valid_items:
+            return None, prompt_vector
 
-            item = json.loads(raw_data)
-            cached_vector = item.get("vector", [])
+        # High-Speed Vectorized Matrix Cosine Similarity (NumPy BLAS / SIMD in C)
+        matrix = np.array([it["vector"] for it in valid_items], dtype=np.float32)
+        q_vec = np.array(prompt_vector, dtype=np.float32)
 
-            score = cosine_similarity(prompt_vector, cached_vector)
+        norms = np.linalg.norm(matrix, axis=1) * np.linalg.norm(q_vec)
+        scores = np.dot(matrix, q_vec) / np.maximum(norms, 1e-9)
 
-            if score > highest_similarity:
-                highest_similarity = score
-                if score >= threshold:
-                    best_match = {
-                        "cached_prompt": item.get("prompt"),
-                        "response": item.get("response"),
-                        "provider": item.get("provider"),
-                        "similarity_score": round(score, 4),
-                        "cache_hit": True
-                    }
+        best_idx = int(np.argmax(scores))
+        highest_score = float(scores[best_idx])
 
-        if best_match:
+        if highest_score >= threshold:
+            best_item = valid_items[best_idx]
+            best_match = {
+                "cached_prompt": best_item.get("prompt"),
+                "response": best_item.get("response"),
+                "provider": best_item.get("provider"),
+                "similarity_score": round(highest_score, 4),
+                "cache_hit": True
+            }
             return best_match, prompt_vector
 
     except Exception as e:
