@@ -148,11 +148,11 @@ export default function Sidebar({
             </div>
           </div>
           <a
-            href="http://localhost:5173"
+            href="http://localhost:3001"
             target="_blank"
             rel="noreferrer"
             className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-[#2e2e2e] transition-colors"
-            title="Open Gateway Admin Studio"
+            title="Open Gateway Admin Studio (Port 3001)"
           >
             <ExternalLink className="w-4 h-4" />
           </a>

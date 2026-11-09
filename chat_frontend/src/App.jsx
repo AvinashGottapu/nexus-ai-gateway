@@ -288,13 +288,24 @@ export default function App() {
               <span>Gateway: Online</span>
             </div>
 
-            {/* Link to Admin Studio */}
+            {/* Link to Developer Portal (Port 3000) */}
             <a
-              href="http://localhost:5173"
+              href="http://localhost:3000"
+              target="_blank"
+              rel="noreferrer"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#171717] hover:bg-[#222] border border-[#2b2b2b] text-xs font-medium text-neutral-400 hover:text-white transition-all shadow-sm"
+              title="Open Developer Portal (Port 3000)"
+            >
+              <span>Developer Keys</span>
+            </a>
+
+            {/* Link to Admin Studio (Port 3001) */}
+            <a
+              href="http://localhost:3001"
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1e1e1e] hover:bg-[#262626] border border-[#303030] text-xs font-medium text-neutral-300 hover:text-white transition-all shadow-sm"
-              title="Open Admin Gateway Studio"
+              title="Open Admin Gateway Studio (Port 3001)"
             >
               <Activity className="w-3.5 h-3.5 text-blue-400" />
               <span>Admin Studio</span>
