@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    background-color: #0d0d0d;
+    color: #ececec;
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a2a;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f3f;
+}
+
+/* Streaming Blinking Cursor */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.streaming-cursor::after {
+  content: '▋';
+  display: inline-block;
+  margin-left: 2px;
+  color: #3b82f6;
+  animation: blink 0.9s infinite;
+}
+
+/* Gemini Glow Gradient Animation */
+@keyframes geminiShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.gemini-gradient {
+  background: linear-gradient(135deg, #4b90ff 0%, #a855f7 50%, #ec4899 100%);
+  background-size: 200% 200%;
+  animation: geminiShift 6s ease infinite;
+}
+
+.gemini-text-gradient {
+  background: linear-gradient(135deg, #60a5fa 0%, #c084fc 50%, #f472b6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
