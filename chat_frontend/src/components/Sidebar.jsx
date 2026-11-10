@@ -5,13 +5,11 @@ import {
   PanelLeftClose, 
   PanelLeft, 
   Trash2, 
-  MoreVertical, 
   Sparkles, 
-  Settings, 
-  ExternalLink,
-  Code2,
-  Cpu,
-  ShieldCheck
+  Settings,
+  LogIn,
+  LogOut,
+  User
 } from 'lucide-react';
 
 export default function Sidebar({ 
@@ -21,7 +19,10 @@ export default function Sidebar({
   onNewChat, 
   onDeleteChat,
   isOpen,
-  onToggleOpen 
+  onToggleOpen,
+  user,
+  onOpenAuth,
+  onLogout
 }) {
   const [hoveredChatId, setHoveredChatId] = useState(null);
   const [menuOpenChatId, setMenuOpenChatId] = useState(null);
@@ -132,31 +133,34 @@ export default function Sidebar({
 
       {/* Bottom User Profile Section (Matching ChatGPT/Gemini bottom bar) */}
       <div className="p-3 border-t border-[#262626] space-y-2">
-        <div className="flex items-center justify-between p-2 rounded-xl hover:bg-[#212121] transition-colors cursor-pointer group">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-xs font-bold text-white shadow">
-              AG
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-white group-hover:text-blue-400 transition-colors">
-                Avinash Gottapu
+        {user ? (
+          <div className="flex items-center justify-between p-2 rounded-xl hover:bg-[#212121] transition-colors group">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {user.imageUrl ? (
+                <img src={user.imageUrl} alt="Avatar" className="w-8 h-8 rounded-full object-cover shadow shrink-0" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-xs font-bold text-white shadow shrink-0">
+                  {(user.fullName || user.name || 'User').slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-white group-hover:text-blue-400 transition-colors truncate">
+                  {user.fullName || user.name || 'User'}
+                </div>
+                <div className="text-[10px] text-neutral-400 truncate font-mono">
+                  {user.primaryEmailAddress?.emailAddress || user.email || ''}
+                </div>
               </div>
-              <div className="text-[10px] text-neutral-400 flex items-center gap-1 font-mono">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                Enterprise Pro
-              </div>
             </div>
+            <button
+              onClick={onLogout}
+              className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-[#2e2e2e] transition-colors shrink-0"
+              title="Sign Out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
-          <a
-            href="http://localhost:3001"
-            target="_blank"
-            rel="noreferrer"
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-[#2e2e2e] transition-colors"
-            title="Open Gateway Admin Studio (Port 3001)"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </a>
-        </div>
+        ) : null}
       </div>
     </aside>
   );

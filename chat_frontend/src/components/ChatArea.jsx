@@ -44,7 +44,8 @@ export default function ChatArea({
   messages, 
   isStreaming, 
   onSendSuggestion, 
-  onRegenerate 
+  onRegenerate,
+  userName = 'Avinash'
 }) {
   const bottomRef = useRef(null);
 
@@ -67,7 +68,7 @@ export default function ChatArea({
 
             {/* Greeting */}
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white mb-2">
-              How can I help, <span className="gemini-text-gradient">Avinash</span>?
+              How can I help, <span className="gemini-text-gradient">{userName}</span>?
             </h1>
             <p className="text-neutral-400 text-sm max-w-md mx-auto mb-10 leading-relaxed">
               Powered by Nexus AI Multi-Provider Gateway, native Python code execution, and 2-stage Hybrid RAG.

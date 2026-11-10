@@ -10,7 +10,7 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Header
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -23,6 +23,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 # API Gateway & Identity layer (Auth, SQLite DB, Redis Rate Limiter, Credit Wallets)
 from gateway.identity import (
     verify_api_gateway,
+    verify_consumer_token,
+    verify_developer_key,
     create_api_key,
     recharge_key,
     deduct_usage_cost,
@@ -34,7 +36,15 @@ from gateway.identity import (
     get_payments_summary,
     get_security_policy,
     update_security_policy,
-    toggle_key_status
+    toggle_key_status,
+    register_user,
+    authenticate_user,
+    verify_user_token,
+    get_user_by_id,
+    list_user_conversations,
+    get_conversation_messages,
+    save_conversation_turn,
+    delete_conversation
 )
 from orchestrator.circuit_breaker import circuit_breaker
 
@@ -49,6 +59,8 @@ from cache.semantic_cache import check_semantic_cache, save_to_semantic_cache
 from gateway.session_store import (
     generate_session_id,
     get_session_langchain_messages,
+    convert_to_langchain_messages,
+    calculate_history_tokens,
     append_session_message,
     clear_session
 )
@@ -95,6 +107,16 @@ class PromptRequest(BaseModel):
     prompt: str
     provider: Optional[str] = "groq"  # "groq", "openai", "gemini"
     session_id: Optional[str] = None  # Layer C: Per-user multi-turn conversation session ID
+    user_id: Optional[str] = None     # Authenticated user ID
+
+class UserRegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: Optional[str] = "User"
+
+class UserLoginRequest(BaseModel):
+    email: str
+    password: str
 
 class IngestKnowledgeRequest(BaseModel):
     text: str
@@ -135,6 +157,70 @@ def get_model(provider: str):
         return ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=os.getenv("GOOGLE_API_KEY"))
     else:
         raise HTTPException(status_code=400, detail=f"Invalid provider '{provider}'. Choose 'groq', 'openai', or 'gemini'.")
+
+
+# --- AUTHENTICATION & USER MANAGEMENT ENDPOINTS ---
+
+@app.post("/api/auth/register")
+def register(req: UserRegisterRequest):
+    """Registers a new user account into SQLite users table."""
+    try:
+        user_data = register_user(req.email, req.password, req.name or "User")
+        return {"status": "success", "user": user_data, "token": user_data["token"]}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
+
+
+@app.post("/api/auth/login")
+def login(req: UserLoginRequest):
+    """Authenticates user against SQLite database and returns session token."""
+    user_data = authenticate_user(req.email, req.password)
+    if not user_data:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    return {"status": "success", "user": user_data, "token": user_data["token"]}
+
+
+@app.get("/api/auth/me")
+def get_current_user(authorization: Optional[str] = Header(None)):
+    """Validates session token and returns current user profile."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authentication token.")
+    token = authorization.split("Bearer ", 1)[1].strip()
+    user_id = verify_user_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Session expired or invalid. Please sign in again.")
+    user = get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return {"status": "success", "user": user}
+
+
+# --- CONVERSATION & CHAT HISTORY ENDPOINTS ---
+
+@app.get("/api/conversations")
+def get_user_conversations(user_id: str):
+    """Returns all past conversations for a user_id from SQLite."""
+    if not user_id:
+        return {"conversations": []}
+    chats = list_user_conversations(user_id)
+    return {"conversations": chats}
+
+
+@app.get("/api/conversations/{conversation_id}/messages")
+def get_chat_messages(conversation_id: str):
+    """Returns all messages in a conversation from SQLite."""
+    msgs = get_conversation_messages(conversation_id)
+    return {"messages": msgs}
+
+
+@app.delete("/api/conversations/{conversation_id}")
+async def remove_conversation(conversation_id: str, user_id: Optional[str] = None):
+    """Deletes a conversation and its messages from both SQLite and Redis cache."""
+    await clear_session(conversation_id)
+    success = delete_conversation(conversation_id, user_id)
+    return {"status": "success" if success else "not_found", "deleted": success}
 
 
 # --- GATEWAY & WALLET MANAGEMENT ENDPOINTS ---
@@ -391,23 +477,22 @@ async def upload_and_ingest_file(
         )
 
 
-# --- PROTECTED INFERENCE ENDPOINT ---
+# =====================================================================
+# SHARED INFERENCE PIPELINE
+# =====================================================================
 
-@app.post("/chat")
-@app.post("/v1/chat/completions")
-async def chat(
+async def run_chat_pipeline(
     req: PromptRequest,
-    client_info: Dict[str, Any] = Depends(verify_api_gateway)  # 👈 GATEWAY INTERCEPTOR
-):
+    client_info: Dict[str, Any],
+    session_id: str,
+    chat_history: list,
+    history_tokens: int,
+    is_consumer: bool
+) -> Dict[str, Any]:
     """
-    Protected LLM Chat Endpoint:
-    1. Authenticates Developer Key (SHA-256)
-    2. Enforces Distributed Redis Sliding-Window Rate Limit
-    3. Enforces Credit Balance ($0.00 check)
-    4. Calls LLM & Deducts dynamic token usage cost
-    5. Layer D: Generates trace_id and records latency telemetry
+    Executes the full LLM pipeline:
+    Input Guardrails -> Semantic Cache -> Intent Routing -> Orchestration -> Output Guardrails -> Telemetry
     """
-    # Layer D: 09 Observability - Initialize distributed trace timer
     timer = RequestTimer()
     trace_id = generate_trace_id()
 
@@ -415,10 +500,6 @@ async def chat(
     timer.start_phase()
     safe_prompt = await apply_input_guardrails(req.prompt)
     timer.record_phase("input_guardrails_ms")
-
-    # Layer C: Session Store (Per-user conversation • TTL)
-    session_id = req.session_id or generate_session_id()
-    chat_history = await get_session_langchain_messages(session_id)
 
     # 03 Semantic Cache: Check for >= 90% semantic match in Redis
     timer.start_phase()
@@ -435,9 +516,20 @@ async def chat(
         )
         timer.record_phase("output_guardrails_ms")
 
-        # Layer C: Session Store - Append cached turn to memory
-        await append_session_message(session_id, "user", req.prompt)
-        await append_session_message(session_id, "assistant", guard_output["sanitized_response"])
+        # Layer C: Session Store - Append cached turn to memory (Consumer ONLY)
+        if is_consumer:
+            await append_session_message(session_id, "user", req.prompt)
+            await append_session_message(session_id, "assistant", guard_output["sanitized_response"])
+
+            # Persist conversation turn in SQLite
+            save_conversation_turn(
+                conversation_id=session_id,
+                user_id=req.user_id or client_info.get("user_id") or "usr_anonymous",
+                user_prompt=req.prompt,
+                assistant_response=guard_output["sanitized_response"],
+                metadata={"cache": {"hit": True}, "provider": cached_result.get("provider", "gemini")},
+                model=cached_result.get("provider", "gemini")
+            )
 
         timings = timer.get_summary()
 
@@ -477,6 +569,12 @@ async def chat(
                 "rejection_type": guard_output.get("rejection_type")
             },
             "timings_ms": timings,
+            "memory": {
+                "history_tokens": history_tokens,
+                "turns_in_context": len(chat_history),
+                "budget_ceiling": 3000,
+                "mode": "stateful_consumer" if is_consumer else "stateless_developer"
+            },
             "billing": {
                 "cost_usd": 0.0,
                 "remaining_balance_usd": client_info["balance_usd"]
@@ -513,6 +611,12 @@ async def chat(
             "action_taken": orch_result.get("action_taken"),
             "response": orch_result["response"],
             "timings_ms": timings,
+            "memory": {
+                "history_tokens": history_tokens,
+                "turns_in_context": len(chat_history),
+                "budget_ceiling": 3000,
+                "mode": "stateful_consumer" if is_consumer else "stateless_developer"
+            },
             "billing": {
                 "cost_usd": 0.0,
                 "remaining_balance_usd": client_info["balance_usd"]
@@ -543,9 +647,28 @@ async def chat(
     ):
         await save_to_semantic_cache(safe_prompt, prompt_vector, final_answer, provider_used)
 
-    # Layer C: Session Store - Append conversation turns to Redis with 2-hour sliding window TTL
-    await append_session_message(session_id, "user", req.prompt)
-    await append_session_message(session_id, "assistant", final_answer)
+    # Layer C: Session Store - Append conversation turns to Redis & SQLite (Consumer ONLY)
+    if is_consumer:
+        await append_session_message(session_id, "user", req.prompt)
+        await append_session_message(session_id, "assistant", final_answer)
+
+        # Persist permanent conversation turn in SQLite
+        save_conversation_turn(
+            conversation_id=session_id,
+            user_id=req.user_id or client_info.get("user_id") or "usr_anonymous",
+            user_prompt=req.prompt,
+            assistant_response=final_answer,
+            metadata={
+                "provider_used": provider_used,
+                "sub_intent": orch_result.get("sub_intent"),
+                "intent": orch_result["intent"],
+                "auto_rag_promoted": orch_result.get("auto_rag_promoted", False),
+                "savings_badge": orch_result.get("savings_badge"),
+                "timings": timings,
+                "cache": {"hit": False}
+            },
+            model=provider_used
+        )
 
     # 3. Dynamic Cost Calculation based on model-specific pricing catalog
     # (Default nominal cost $0.0001 or computed per provider rates)
@@ -558,8 +681,10 @@ async def chat(
         completion_tokens = token_usage.get("completion_tokens", 0)
         cost = calculate_token_cost(provider_used, prompt_tokens, completion_tokens)
 
-    # 4. Atomically Deduct from Developer's SQLite Wallet
-    remaining_balance = deduct_usage_cost(client_info["key_hash"], cost)
+    # 4. Atomically Deduct from Developer's SQLite Wallet (if not consumer)
+    remaining_balance = client_info.get("balance_usd", 1000.0)
+    if not is_consumer and client_info.get("key_hash"):
+        remaining_balance = deduct_usage_cost(client_info["key_hash"], cost)
 
     timings = timer.get_summary()
 
@@ -594,6 +719,12 @@ async def chat(
         },
         "token_usage": token_usage,
         "timings_ms": timings,
+        "memory": {
+            "history_tokens": history_tokens,
+            "turns_in_context": len(chat_history),
+            "budget_ceiling": 3000,
+            "mode": "stateful_consumer" if is_consumer else "stateless_developer"
+        },
         "billing": {
             "cost_usd": cost,
             "remaining_balance_usd": remaining_balance
@@ -601,201 +732,311 @@ async def chat(
     }
 
 
-# --- REAL-TIME SSE TOKEN STREAMING ENDPOINT (FEATURE 2) ---
+# =====================================================================
+# 1. CONSUMER CHAT ENDPOINT (chat_frontend - Clerk Auth - 100% Stateful)
+# =====================================================================
 
-@app.post("/chat/stream")
-@app.post("/v1/chat/completions/stream")
-async def chat_stream(
+@app.post("/chat")
+async def consumer_chat(
     req: PromptRequest,
-    client_info: Dict[str, Any] = Depends(verify_api_gateway)
+    consumer_info: Dict[str, Any] = Depends(verify_consumer_token)
 ):
     """
-    Feature 2: Real-Time Token Streaming via Server-Sent Events (SSE)
-    - Sub-100ms Time-To-First-Token (TTFT)
-    - Asynchronous token-by-token event generator
-    - Real-time circuit breaker failover cascading
-    - Instant semantic cache zero-shot accelerated delivery
-    - Post-stream atomic billing deduction and Redis telemetry recording
+    Dedicated Consumer Web Endpoint (chat_frontend):
+    - 100% Stateful: Auto-injects up to 3,000 tokens of past history from Redis / SQLite.
+    - Zero manual message array required from frontend.
+    - Authenticated via Clerk JWT.
     """
-    async def sse_token_generator():
-        timer = RequestTimer()
-        trace_id = generate_trace_id()
-        session_id = req.session_id or generate_session_id()
+    session_id = req.session_id or generate_session_id()
+    chat_history = await get_session_langchain_messages(session_id, max_tokens=3000)
+    history_tokens = calculate_history_tokens(chat_history)
+    return await run_chat_pipeline(req, consumer_info, session_id, chat_history, history_tokens, is_consumer=True)
 
-        # Step 1: Input Guardrails (Presidio PII Masking & Safety Guard)
+
+# =====================================================================
+# 2. DEVELOPER API ENDPOINT (OpenAI API Standard - sk-live - 100% Stateless)
+# =====================================================================
+
+@app.post("/v1/chat/completions")
+async def developer_chat_completions(
+    req: PromptRequest,
+    client_info: Dict[str, Any] = Depends(verify_developer_key)
+):
+    """
+    Dedicated Developer B2B Endpoint (OpenAI API Standard):
+    - 100% Stateless: Uses ONLY the messages explicitly provided in req.chat_history.
+    - Zero server-side memory injection.
+    - Deducts wallet balance per token from SQLite API key.
+    """
+    session_id = req.session_id or generate_session_id()
+    chat_history = convert_to_langchain_messages(req.chat_history or [], max_tokens=3000)
+    history_tokens = calculate_history_tokens(chat_history)
+    return await run_chat_pipeline(req, client_info, session_id, chat_history, history_tokens, is_consumer=False)
+
+
+# =====================================================================
+# REAL-TIME SSE TOKEN STREAMING GENERATOR
+# =====================================================================
+
+async def sse_token_generator(
+    req: PromptRequest,
+    client_info: Dict[str, Any],
+    session_id: str,
+    chat_history: list,
+    history_tokens: int,
+    is_consumer: bool
+):
+    timer = RequestTimer()
+    trace_id = generate_trace_id()
+
+    # Step 1: Input Guardrails (Presidio PII Masking & Safety Guard)
+    timer.start_phase()
+    try:
+        safe_prompt = await apply_input_guardrails(req.prompt)
+    except HTTPException as he:
+        err_msg = he.detail.get("message", "Input Guardrail Violation") if isinstance(he.detail, dict) else str(he.detail)
+        payload = {
+            "token": f"🛡️ [Input Guardrail Blocked]: {err_msg}",
+            "done": True,
+            "error": "guardrail_violation",
+            "ttft_ms": round((time.perf_counter() - timer.start_time) * 1000, 1),
+            "trace_id": trace_id
+        }
+        yield f"data: {json.dumps(payload)}\n\n"
+        return
+    timer.record_phase("input_guardrails_ms")
+
+    # Step 2: Rate limit & token bucket identity layer
+    timer.record_phase("auth_ms")
+
+    # Step 3: Semantic Cache Check
+    timer.start_phase()
+    cached_result, prompt_vector = await check_semantic_cache(safe_prompt)
+    timer.record_phase("cache_lookup_ms")
+
+    if cached_result:
         timer.start_phase()
-        try:
-            safe_prompt = await apply_input_guardrails(req.prompt)
-        except HTTPException as he:
-            err_msg = he.detail.get("message", "Input Guardrail Violation") if isinstance(he.detail, dict) else str(he.detail)
-            payload = {
-                "token": f"🛡️ [Input Guardrail Blocked]: {err_msg}",
-                "done": True,
-                "error": "guardrail_violation",
-                "ttft_ms": round((time.perf_counter() - timer.start_time) * 1000, 1),
-                "trace_id": trace_id
-            }
-            yield f"data: {json.dumps(payload)}\n\n"
-            return
-        timer.record_phase("input_guardrails_ms")
+        ttft_ms = round((time.perf_counter() - timer.start_time) * 1000, 1)
+        cached_text = cached_result["response"]
 
-        # Step 2: Rate limit & token bucket identity layer
-        timer.record_phase("auth_ms")
+        # Stream cached words smoothly
+        words = cached_text.split(" ")
+        for i, w in enumerate(words):
+            token_chunk = w if i == 0 else " " + w
+            yield f"data: {json.dumps({'token': token_chunk, 'ttft_ms': ttft_ms, 'cache_hit': True, 'provider': cached_result['provider'], 'done': False})}\n\n"
+            await asyncio.sleep(0.015)
 
-        chat_history = await get_session_langchain_messages(session_id)
-
-        # Step 3: Semantic Cache Check
-        timer.start_phase()
-        cached_result, prompt_vector = await check_semantic_cache(safe_prompt)
-        timer.record_phase("cache_lookup_ms")
-
-        if cached_result:
-            timer.start_phase()
-            ttft_ms = round((time.perf_counter() - timer.start_time) * 1000, 1)
-            cached_text = cached_result["response"]
-
-            # Stream cached words smoothly
-            words = cached_text.split(" ")
-            for i, w in enumerate(words):
-                token_chunk = w if i == 0 else " " + w
-                yield f"data: {json.dumps({'token': token_chunk, 'ttft_ms': ttft_ms, 'cache_hit': True, 'provider': cached_result['provider'], 'done': False})}\n\n"
-                await asyncio.sleep(0.015)
-
-            # Record telemetry & append to session
+        # Record telemetry & append to session if consumer
+        if is_consumer:
             await append_session_message(session_id, "user", req.prompt)
             await append_session_message(session_id, "assistant", cached_text)
-            timer.record_phase("output_guardrails_ms")
-            timings = timer.get_summary()
-
-            # Estimate avoided cost on stream cache hit
-            est_prompt_tokens = max(1, int(len(req.prompt.split()) * 1.33))
-            est_comp_tokens = max(1, int(len(words) * 1.33))
-            saved_cost = calculate_token_cost(
-                provider=cached_result.get("provider", "gemini"),
-                prompt_tokens=est_prompt_tokens,
-                completion_tokens=est_comp_tokens
+            save_conversation_turn(
+                conversation_id=session_id,
+                user_id=req.user_id or client_info.get("user_id") or "usr_anonymous",
+                user_prompt=req.prompt,
+                assistant_response=cached_text,
+                metadata={"provider_used": cached_result.get("provider", "gemini"), "streaming": True, "cache_hit": True},
+                model=cached_result.get("provider", "gemini")
             )
-
-            await record_request_metrics(
-                provider=cached_result["provider"],
-                cache_hit=True,
-                total_tokens=len(words),
-                cost_usd=0.0,
-                latency_ms=timings["total_latency_ms"],
-                saved_cost_usd=saved_cost,
-                phase_timings=timings
-            )
-
-            # Final SSE completion packet
-            yield f"data: {json.dumps({'done': True, 'cache_hit': True, 'provider': cached_result['provider'], 'total_tokens': len(words), 'ttft_ms': ttft_ms, 'total_latency_ms': timings['total_latency_ms'], 'cost_usd': 0.0, 'trace_id': trace_id, 'session_id': session_id})}\n\n"
-            return
-
-        # Step 4: Router Intent Classification
-        timer.start_phase()
-        intent_data = await classify_intent(safe_prompt)
-        timer.record_phase("intent_routing_ms")
-
-        sub_intent_val = intent_data.sub_intent.value if intent_data.sub_intent else None
-        routing_sla = None
-
-        # Step 5: Stream from Orchestrator & Model Gateway
-        timer.start_phase()
-        first_token_sent = False
-        ttft_ms = 0.0
-        full_response = []
-        provider_used = "groq"
-        failover_active = False
-
-        async for chunk in orchestrate_request_stream(
-            prompt=safe_prompt,
-            requested_model=req.provider,
-            max_tokens=2048,
-            chat_history=chat_history,
-            intent_data=intent_data,
-            prompt_vector=prompt_vector
-        ):
-            if not first_token_sent:
-                ttft_ms = round((time.perf_counter() - timer.start_time) * 1000, 1)
-                first_token_sent = True
-
-            token = chunk["token"]
-            provider_used = chunk["provider"]
-            failover_active = chunk.get("failover_triggered", False)
-            if "routing_decision" in chunk:
-                routing_sla = chunk["routing_decision"]
-            full_response.append(token)
-
-            event_data = {
-                "token": token,
-                "ttft_ms": ttft_ms,
-                "provider": provider_used,
-                "failover_triggered": failover_active,
-                "cache_hit": False,
-                "intent": chunk.get("intent", intent_data.category.value),
-                "sub_intent": sub_intent_val,
-                "auto_rag_promoted": chunk.get("auto_rag_promoted", False),
-                "routing_decision": routing_sla,
-                "savings_badge": routing_sla.get("savings_badge") if routing_sla else None,
-                "done": chunk.get("done", False),
-                "trace_id": trace_id
-            }
-            yield f"data: {json.dumps(event_data)}\n\n"
-
-        timer.record_phase("orchestrator_llm_ms")
-
-        # Step 5: Finalize metrics & billing
-        complete_text = "".join(full_response)
-        total_tokens = max(1, len(complete_text) // 4)
-        cost = calculate_token_cost(provider_used, len(req.prompt) // 4, total_tokens)
-
-        # Atomic SQLite wallet deduction
-        remaining_balance = deduct_usage_cost(client_info["key_hash"], cost)
-
-        # Save to semantic cache & session store
-        timer.start_phase()
-        if (
-            prompt_vector
-            and len(complete_text) > 10
-            and "Sensitive Operation Intercepted" not in complete_text
-            and "Review Ticket #" not in complete_text
-        ):
-            await save_to_semantic_cache(safe_prompt, prompt_vector, complete_text, provider_used)
-        await append_session_message(session_id, "user", req.prompt)
-        await append_session_message(session_id, "assistant", complete_text)
         timer.record_phase("output_guardrails_ms")
-
         timings = timer.get_summary()
 
+        # Estimate avoided cost on stream cache hit
+        est_prompt_tokens = max(1, int(len(req.prompt.split()) * 1.33))
+        est_comp_tokens = max(1, int(len(words) * 1.33))
+        saved_cost = calculate_token_cost(
+            provider=cached_result.get("provider", "gemini"),
+            prompt_tokens=est_prompt_tokens,
+            completion_tokens=est_comp_tokens
+        )
+
         await record_request_metrics(
-            provider=provider_used,
-            cache_hit=False,
-            total_tokens=total_tokens,
-            cost_usd=cost,
+            provider=cached_result["provider"],
+            cache_hit=True,
+            total_tokens=len(words),
+            cost_usd=0.0,
             latency_ms=timings["total_latency_ms"],
+            saved_cost_usd=saved_cost,
             phase_timings=timings
         )
 
-        final_payload = {
-            "done": True,
-            "cache_hit": False,
-            "total_tokens": total_tokens,
+        # Final SSE completion packet
+        yield f"data: {json.dumps({'done': True, 'cache_hit': True, 'provider': cached_result['provider'], 'total_tokens': len(words), 'ttft_ms': ttft_ms, 'total_latency_ms': timings['total_latency_ms'], 'cost_usd': 0.0, 'trace_id': trace_id, 'session_id': session_id})}\n\n"
+        return
+
+    # Step 4: Router Intent Classification
+    timer.start_phase()
+    intent_data = await classify_intent(safe_prompt)
+    timer.record_phase("intent_routing_ms")
+
+    sub_intent_val = intent_data.sub_intent.value if intent_data.sub_intent else None
+    routing_sla = None
+
+    # Step 5: Stream from Orchestrator & Model Gateway
+    timer.start_phase()
+    first_token_sent = False
+    ttft_ms = 0.0
+    full_response = []
+    provider_used = "groq"
+    failover_active = False
+
+    async for chunk in orchestrate_request_stream(
+        prompt=safe_prompt,
+        requested_model=req.provider,
+        max_tokens=2048,
+        chat_history=chat_history,
+        intent_data=intent_data,
+        prompt_vector=prompt_vector
+    ):
+        if not first_token_sent:
+            ttft_ms = round((time.perf_counter() - timer.start_time) * 1000, 1)
+            first_token_sent = True
+
+        token = chunk["token"]
+        provider_used = chunk["provider"]
+        failover_active = chunk.get("failover_triggered", False)
+        if "routing_decision" in chunk:
+            routing_sla = chunk["routing_decision"]
+        full_response.append(token)
+
+        event_data = {
+            "token": token,
             "ttft_ms": ttft_ms,
-            "total_latency_ms": timings["total_latency_ms"],
-            "cost_usd": cost,
-            "remaining_balance_usd": remaining_balance,
             "provider": provider_used,
             "failover_triggered": failover_active,
-            "intent": intent_data.category.value,
+            "cache_hit": False,
+            "intent": chunk.get("intent", intent_data.category.value),
             "sub_intent": sub_intent_val,
+            "auto_rag_promoted": chunk.get("auto_rag_promoted", False),
             "routing_decision": routing_sla,
             "savings_badge": routing_sla.get("savings_badge") if routing_sla else None,
-            "trace_id": trace_id,
-            "session_id": session_id
+            "done": chunk.get("done", False),
+            "trace_id": trace_id
         }
-        yield f"data: {json.dumps(final_payload)}\n\n"
+        yield f"data: {json.dumps(event_data)}\n\n"
 
+    timer.record_phase("orchestrator_llm_ms")
+
+    # Step 5: Finalize metrics & billing
+    complete_text = "".join(full_response)
+    total_tokens = max(1, len(complete_text) // 4)
+    cost = calculate_token_cost(provider_used, len(req.prompt) // 4, total_tokens)
+
+    # Atomic SQLite wallet deduction (if developer)
+    remaining_balance = client_info.get("balance_usd", 1000.0)
+    if not is_consumer and client_info.get("key_hash"):
+        remaining_balance = deduct_usage_cost(client_info["key_hash"], cost)
+
+    # Save to semantic cache & session store
+    timer.start_phase()
+    if (
+        prompt_vector
+        and len(complete_text) > 10
+        and "Sensitive Operation Intercepted" not in complete_text
+        and "Review Ticket #" not in complete_text
+    ):
+        await save_to_semantic_cache(safe_prompt, prompt_vector, complete_text, provider_used)
+
+    if is_consumer:
+        await append_session_message(session_id, "user", req.prompt)
+        await append_session_message(session_id, "assistant", complete_text)
+        save_conversation_turn(
+            conversation_id=session_id,
+            user_id=req.user_id or client_info.get("user_id") or "usr_anonymous",
+            user_prompt=req.prompt,
+            assistant_response=complete_text,
+            metadata={"provider_used": provider_used, "streaming": True},
+            model=provider_used
+        )
+
+    timer.record_phase("output_guardrails_ms")
+
+    timings = timer.get_summary()
+
+    await record_request_metrics(
+        provider=provider_used,
+        cache_hit=False,
+        total_tokens=total_tokens,
+        cost_usd=cost,
+        latency_ms=timings["total_latency_ms"],
+        phase_timings=timings
+    )
+
+    final_payload = {
+        "done": True,
+        "cache_hit": False,
+        "total_tokens": total_tokens,
+        "ttft_ms": ttft_ms,
+        "total_latency_ms": timings["total_latency_ms"],
+        "cost_usd": cost,
+        "remaining_balance_usd": remaining_balance,
+        "provider": provider_used,
+        "failover_triggered": failover_active,
+        "intent": intent_data.category.value,
+        "sub_intent": sub_intent_val,
+        "routing_decision": routing_sla,
+        "savings_badge": routing_sla.get("savings_badge") if routing_sla else None,
+        "trace_id": trace_id,
+        "session_id": session_id,
+        "memory": {
+            "history_tokens": history_tokens,
+            "turns_in_context": len(chat_history),
+            "budget_ceiling": 3000,
+            "mode": "stateful_consumer" if is_consumer else "stateless_developer"
+        }
+    }
+    yield f"data: {json.dumps(final_payload)}\n\n"
+
+
+# =====================================================================
+# 3. CONSUMER STREAMING ENDPOINT (chat_frontend - Clerk Auth - Real-Time)
+# =====================================================================
+
+@app.post("/chat/stream")
+async def consumer_chat_stream(
+    req: PromptRequest,
+    consumer_info: Dict[str, Any] = Depends(verify_consumer_token)
+):
+    """
+    Dedicated Consumer Web Streaming Endpoint:
+    - 100% Stateful SSE token streaming.
+    - Automatically pulls up to 3,000 tokens of past history from Redis / SQLite.
+    - Saves completed assistant turns to memory.
+    """
+    session_id = req.session_id or generate_session_id()
+    chat_history = await get_session_langchain_messages(session_id, max_tokens=3000)
+    history_tokens = calculate_history_tokens(chat_history)
     return StreamingResponse(
-        sse_token_generator(),
+        sse_token_generator(req, consumer_info, session_id, chat_history, history_tokens, is_consumer=True),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+# =====================================================================
+# 4. DEVELOPER STREAMING ENDPOINT (OpenAI API Standard - sk-live - SSE)
+# =====================================================================
+
+@app.post("/v1/chat/completions/stream")
+async def developer_chat_stream(
+    req: PromptRequest,
+    client_info: Dict[str, Any] = Depends(verify_developer_key)
+):
+    """
+    Dedicated Developer B2B Streaming Endpoint:
+    - 100% Stateless SSE token streaming.
+    - Uses ONLY explicit messages in req.chat_history.
+    - Deducts wallet balance per token generated.
+    """
+    session_id = req.session_id or generate_session_id()
+    chat_history = convert_to_langchain_messages(req.chat_history or [], max_tokens=3000)
+    history_tokens = calculate_history_tokens(chat_history)
+    return StreamingResponse(
+        sse_token_generator(req, client_info, session_id, chat_history, history_tokens, is_consumer=False),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
