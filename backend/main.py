@@ -53,13 +53,7 @@ from guardrails.input_guard import apply_input_guardrails
 from guardrails.output_guard import apply_output_guardrails
 
 # 03 Semantic Cache (Redis Cosine Similarity Engine)
-from cache.semantic_cache import (
-    check_semantic_cache,
-    save_to_semantic_cache,
-    clear_semantic_cache,
-    is_context_dependent_prompt,
-    is_conversational_followup
-)
+from cache.semantic_cache import check_semantic_cache, save_to_semantic_cache
 
 # Layer C: Session Store (Context-Aware Multi-Turn Chat Memory with TTL)
 from gateway.session_store import (
@@ -227,14 +221,6 @@ async def remove_conversation(conversation_id: str, user_id: Optional[str] = Non
     await clear_session(conversation_id)
     success = delete_conversation(conversation_id, user_id)
     return {"status": "success" if success else "not_found", "deleted": success}
-
-
-@app.post("/api/cache/clear")
-@app.post("/v1/cache/clear")
-async def purge_semantic_cache():
-    """Purges all entries from the Redis Semantic Cache."""
-    count = await clear_semantic_cache()
-    return {"status": "success", "cleared_entries": count}
 
 
 # --- GATEWAY & WALLET MANAGEMENT ENDPOINTS ---
@@ -515,12 +501,9 @@ async def run_chat_pipeline(
     safe_prompt = await apply_input_guardrails(req.prompt)
     timer.record_phase("input_guardrails_ms")
 
-    # 03 Semantic Cache: Check for >= 90% semantic match in Redis (Skip if context-dependent or conversational follow-up)
+    # 03 Semantic Cache: Check for >= 90% semantic match in Redis
     timer.start_phase()
-    cached_result, prompt_vector = await check_semantic_cache(
-        safe_prompt,
-        has_history=(len(chat_history) > 0)
-    )
+    cached_result, prompt_vector = await check_semantic_cache(safe_prompt)
     timer.record_phase("cache_lookup_ms")
 
     if cached_result:
@@ -827,12 +810,9 @@ async def sse_token_generator(
     # Step 2: Rate limit & token bucket identity layer
     timer.record_phase("auth_ms")
 
-    # Step 3: Semantic Cache Check (Skip if context-dependent or conversational follow-up)
+    # Step 3: Semantic Cache Check
     timer.start_phase()
-    cached_result, prompt_vector = await check_semantic_cache(
-        safe_prompt,
-        has_history=(len(chat_history) > 0)
-    )
+    cached_result, prompt_vector = await check_semantic_cache(safe_prompt)
     timer.record_phase("cache_lookup_ms")
 
     if cached_result:
