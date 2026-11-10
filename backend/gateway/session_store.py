@@ -263,7 +263,10 @@ async def get_session_messages(
                     for db_m in db_messages[-max_messages:]:
                         c = db_m.get("content", "")
                         tok = count_tokens(c)
+                        db_id = db_m.get("id")
+                        msg_id = f"msg_db_{db_id}" if db_id is not None else f"msg_{uuid.uuid4().hex[:10]}"
                         payload = json.dumps({
+                            "id": msg_id,
                             "role": db_m.get("role", "user"),
                             "content": c,
                             "tokens": tok,

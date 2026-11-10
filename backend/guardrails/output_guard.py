@@ -1,5 +1,6 @@
 import os
 import re
+import asyncio
 from typing import Dict, Any, Tuple, Optional
 from langchain_groq import ChatGroq
 from guardrails.input_guard import get_presidio, HAZARD_CATEGORIES
@@ -36,16 +37,22 @@ def redact_secrets_and_pii(text: str) -> str:
     """
     1. Redacts any accidental internal API key leaks using regex.
     2. Redacts customer PII (credit cards, SSNs, phone numbers, emails) using Microsoft Presidio
-       based on the active Security Settings.
+       based on the active Security Settings. Falls back cleanly to regex redaction.
     """
+    if not text:
+        return text
+
     # 1. Mask API key secrets
     clean_text = text
     for pattern in SECRET_PATTERNS:
         clean_text = re.sub(pattern, "[REDACTED_API_KEY]", clean_text)
 
     # 2. Mask customer PII using active Security Policies
-    from gateway.identity import get_security_policy
-    policy = get_security_policy()
+    try:
+        from gateway.identity import get_security_policy
+        policy = get_security_policy()
+    except Exception:
+        policy = {}
 
     entities = ["CREDIT_CARD", "IBAN_CODE", "IP_ADDRESS", "US_PASSPORT", "US_BANK_NUMBER"]
     if policy.get("redact_emails", True):
@@ -59,13 +66,41 @@ def redact_secrets_and_pii(text: str) -> str:
         return clean_text
 
     analyzer, anonymizer = get_presidio()
-    analysis = analyzer.analyze(
-        text=clean_text,
-        language="en",
-        entities=entities
-    )
-    anonymized = anonymizer.anonymize(text=clean_text, analyzer_results=analysis)
-    return anonymized.text
+    if not analyzer or not anonymizer:
+        # Regex-based zero-dependency fallback when Presidio is not loaded
+        if "EMAIL_ADDRESS" in entities:
+            clean_text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED_EMAIL]', clean_text)
+        if "PHONE_NUMBER" in entities:
+            clean_text = re.sub(r'(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', '[REDACTED_PHONE]', clean_text)
+        if "CREDIT_CARD" in entities:
+            clean_text = re.sub(r'\b(?:\d{4}[-\s]?){3}\d{4}\b', '[REDACTED_CARD]', clean_text)
+        if "US_SSN" in entities:
+            clean_text = re.sub(r'\b\d{3}-\d{2}-\d{4}\b', '[REDACTED_SSN]', clean_text)
+        if "IP_ADDRESS" in entities:
+            clean_text = re.sub(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b', '[REDACTED_IP]', clean_text)
+        return clean_text
+
+    try:
+        analysis = analyzer.analyze(
+            text=clean_text,
+            language="en",
+            entities=entities
+        )
+        anonymized = anonymizer.anonymize(text=clean_text, analyzer_results=analysis)
+        return anonymized.text
+    except Exception:
+        # Fallback to regex redaction if Presidio analyze encounters an error
+        if "EMAIL_ADDRESS" in entities:
+            clean_text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED_EMAIL]', clean_text)
+        if "PHONE_NUMBER" in entities:
+            clean_text = re.sub(r'(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', '[REDACTED_PHONE]', clean_text)
+        if "CREDIT_CARD" in entities:
+            clean_text = re.sub(r'\b(?:\d{4}[-\s]?){3}\d{4}\b', '[REDACTED_CARD]', clean_text)
+        if "US_SSN" in entities:
+            clean_text = re.sub(r'\b\d{3}-\d{2}-\d{4}\b', '[REDACTED_SSN]', clean_text)
+        if "IP_ADDRESS" in entities:
+            clean_text = re.sub(r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b', '[REDACTED_IP]', clean_text)
+        return clean_text
 
 
 # 1. Reuse singleton instance for performance
@@ -80,10 +115,11 @@ def get_llama_guard() -> Optional[ChatGroq]:
         return None
     if _GUARD_MODEL is None:
         _GUARD_MODEL = ChatGroq(
-            model="meta-llama/llama-prompt-guard-2-86m",
+            model="openai/gpt-oss-safeguard-20b",
             api_key=api_key,
             temperature=0.0,
-            timeout=5.0
+            timeout=3.0,
+            max_retries=1
         )
     return _GUARD_MODEL
 
@@ -133,13 +169,14 @@ async def check_hallucination(context: str, draft_answer: str) -> bool:
             model="openai/gpt-oss-120b",
             api_key=api_key,
             temperature=0.0,
-            timeout=4.0
+            timeout=3.0,
+            max_retries=1
         )
         prompt_text = GROUNDING_PROMPT.format(
             context=context.strip(),
             draft_answer=draft_answer.strip()
         )
-        response = await evaluator_llm.ainvoke(prompt_text)
+        response = await asyncio.wait_for(evaluator_llm.ainvoke(prompt_text), timeout=3.5)
         verdict = response.content.strip().upper()
 
         if "HALLUCINATED" in verdict:
@@ -170,29 +207,36 @@ async def apply_output_guardrails(
     sanitized = re.sub(r"<br\s*/?>", "\n", sanitized, flags=re.IGNORECASE)
 
     # Step 2: Semantic Safety Check (Llama Guard / Prompt Guard)
-    guard = get_llama_guard()
-    if guard:
-        try:
-            # Prompt Guard on Groq evaluates output text directly
-            response = await guard.ainvoke(sanitized)
-            output = response.content.strip()
+    try:
+        from gateway.identity import get_security_policy
+        policy = get_security_policy()
+    except Exception:
+        policy = {}
 
-            if output.startswith("unsafe"):
-                lines = output.split("\n")
-                code = lines[1].strip() if len(lines) > 1 else "Unknown"
-                category_name = HAZARD_CATEGORIES.get(code, "Unsafe Output")
-                return {
-                    "passed": False,
-                    "rejection_type": "safety_violation",
-                    "hazard_code": code,
-                    "category": category_name,
-                    "sanitized_response": (
-                        f"I cannot provide this response as it violates our safety policy: '{category_name}'."
-                    )
-                }
-        except Exception as e:
-            # Safe fail open if upstream guard service has transient network error
-            pass
+    if policy.get("prompt_guard_enforced", True):
+        guard = get_llama_guard()
+        if guard:
+            try:
+                # Wrap in timeout so an upstream outage never hangs the response
+                response = await asyncio.wait_for(guard.ainvoke(sanitized), timeout=3.0)
+                output = response.content.strip()
+
+                if output.startswith("unsafe"):
+                    lines = output.split("\n")
+                    code = lines[1].strip() if len(lines) > 1 else "Unknown"
+                    category_name = HAZARD_CATEGORIES.get(code, "Unsafe Output")
+                    return {
+                        "passed": False,
+                        "rejection_type": "safety_violation",
+                        "hazard_code": code,
+                        "category": category_name,
+                        "sanitized_response": (
+                            f"I cannot provide this response as it violates our safety policy: '{category_name}'."
+                        )
+                    }
+            except Exception as e:
+                # Safe fail open if upstream guard service has transient network error
+                pass
 
     # Step 3: Hallucination Verification for RAG
     if retrieved_context:

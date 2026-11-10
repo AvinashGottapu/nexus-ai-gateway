@@ -43,8 +43,11 @@ def get_presidio():
     if not HAS_PRESIDIO:
         return None, None
     if _analyzer is None:
-        _analyzer = AnalyzerEngine()
-        _anonymizer = AnonymizerEngine()
+        try:
+            _analyzer = AnalyzerEngine()
+            _anonymizer = AnonymizerEngine()
+        except Exception:
+            return None, None
     return _analyzer, _anonymizer
 
 
@@ -70,8 +73,14 @@ def mask_pii_presidio(text: str) -> str:
     - Emails (EMAIL_ADDRESS) - configurable
     - SSNs, Passports, IP addresses - configurable
     """
-    from gateway.identity import get_security_policy
-    policy = get_security_policy()
+    if not text:
+        return text
+
+    try:
+        from gateway.identity import get_security_policy
+        policy = get_security_policy()
+    except Exception:
+        policy = {}
 
     entities = ["CREDIT_CARD", "IBAN_CODE", "IP_ADDRESS", "US_PASSPORT", "US_BANK_NUMBER"]
     if policy.get("redact_emails", True):
@@ -84,7 +93,8 @@ def mask_pii_presidio(text: str) -> str:
     if not entities:
         return text
 
-    if not HAS_PRESIDIO:
+    analyzer, anonymizer = get_presidio()
+    if not analyzer or not anonymizer:
         # Regex-based zero-dependency fallback
         sanitized = text
         if "EMAIL_ADDRESS" in entities:
@@ -95,18 +105,25 @@ def mask_pii_presidio(text: str) -> str:
             sanitized = re.sub(r'\b(?:\d{4}[-\s]?){3}\d{4}\b', '<CREDIT_CARD>', sanitized)
         return sanitized
 
-    analyzer, anonymizer = get_presidio()
-
-    # 1. Analyze text for sensitive PII entities only
-    results = analyzer.analyze(
-        text=text,
-        language="en",
-        entities=entities
-    )
-
-    # 2. Anonymize/redact detected entities in-place
-    anonymized = anonymizer.anonymize(text=text, analyzer_results=results)
-    return anonymized.text
+    try:
+        # 1. Analyze text for sensitive PII entities only
+        results = analyzer.analyze(
+            text=text,
+            language="en",
+            entities=entities
+        )
+        # 2. Anonymize/redact detected entities in-place
+        anonymized = anonymizer.anonymize(text=text, analyzer_results=results)
+        return anonymized.text
+    except Exception:
+        sanitized = text
+        if "EMAIL_ADDRESS" in entities:
+            sanitized = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '<EMAIL_ADDRESS>', sanitized)
+        if "PHONE_NUMBER" in entities:
+            sanitized = re.sub(r'\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b', '<PHONE_NUMBER>', sanitized)
+        if "CREDIT_CARD" in entities:
+            sanitized = re.sub(r'\b(?:\d{4}[-\s]?){3}\d{4}\b', '<CREDIT_CARD>', sanitized)
+        return sanitized
 
 
 async def run_llama_guard(prompt: str) -> None:

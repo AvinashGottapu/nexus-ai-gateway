@@ -23,17 +23,30 @@ from orchestrator.rag import ingest_temporary_knowledge
 from orchestrator.router import orchestrate_request
 from cache.semantic_cache import get_embedding, cosine_similarity
 
-# Official Ragas & Datasets imports
-from datasets import Dataset
-from ragas import evaluate
-from ragas.metrics import (
-    faithfulness,
-    context_recall,
-    context_precision,
-    answer_correctness,
-    answer_relevancy
-)
-from ragas.llms import llm_factory
+# Official Ragas & Datasets imports (graceful optional import)
+try:
+    from datasets import Dataset
+    from ragas import evaluate
+    from ragas.metrics import (
+        faithfulness,
+        context_recall,
+        context_precision,
+        answer_correctness,
+        answer_relevancy
+    )
+    from ragas.llms import llm_factory
+    HAS_RAGAS = True
+except Exception:
+    Dataset = None
+    evaluate = None
+    faithfulness = None
+    context_recall = None
+    context_precision = None
+    answer_correctness = None
+    answer_relevancy = None
+    llm_factory = None
+    HAS_RAGAS = False
+
 from openai import AsyncOpenAI
 
 # =====================================================================
@@ -246,13 +259,15 @@ async def run_rag_golden_suite() -> Dict[str, Any]:
         "reference": [d["case"]["ground_truth_answer"] for d in case_intermediate_data],
         "reference_contexts": [[d["case"]["ground_truth_context"]] for d in case_intermediate_data]
     }
-    ragas_dataset = Dataset.from_dict(ragas_dict)
-
     # Step 4: Run Ragas evaluate
     eval_scores_list = []
     ragas_executed = False
 
     try:
+        if not HAS_RAGAS or Dataset is None:
+            raise RuntimeError("Ragas/Datasets package is not loaded in current environment.")
+
+        ragas_dataset = Dataset.from_dict(ragas_dict)
         groq_key = os.getenv("GROQ_API_KEY")
         if groq_key:
             groq_client = AsyncOpenAI(
