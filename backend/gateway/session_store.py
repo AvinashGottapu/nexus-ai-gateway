@@ -140,6 +140,24 @@ async def save_session_summary(session_id: str, summary: str) -> None:
 # 2. FAST BACKGROUND LLM SUMMARIZER
 # =====================================================================
 
+def _extract_text_content(content: Any) -> Optional[str]:
+    """Normalizes LangChain str or multi-part list content blocks into clean text."""
+    if not content:
+        return None
+    if isinstance(content, str):
+        return content.strip() or None
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        joined = "".join(parts).strip()
+        return joined or None
+    return str(content).strip() or None
+
+
 async def call_fast_summarizer(prompt: str) -> Optional[str]:
     """
     Calls an ultra-fast model (Gemini 3.5 Flash Lite in ~150ms or fallback)
@@ -151,36 +169,41 @@ async def call_fast_summarizer(prompt: str) -> Optional[str]:
         for gem_model in ["gemini-3.5-flash-lite", "gemini-2.5-flash"]:
             try:
                 from langchain_google_genai import ChatGoogleGenerativeAI
-                llm = ChatGoogleGenerativeAI(
-                    model=gem_model,
-                    google_api_key=google_key,
-                    temperature=0.2,
-                    max_output_tokens=200,
-                    timeout=4.0
-                )
+                kwargs: Dict[str, Any] = {
+                    "model": gem_model,
+                    "google_api_key": google_key,
+                    "max_output_tokens": 400,
+                    "timeout": 12.0,  # Google API requires >= 10s deadline
+                }
+                if gem_model != "gemini-3.5-flash-lite":
+                    kwargs["temperature"] = 0.2
+                llm = ChatGoogleGenerativeAI(**kwargs)
                 res = await llm.ainvoke(prompt)
-                if res and res.content:
-                    return res.content.strip()
+                text = _extract_text_content(getattr(res, "content", None))
+                if text:
+                    return text
             except Exception as e:
                 print(f"⚠️ Gemini {gem_model} summarizer notice ({e})")
 
-    # 2. Fallback: Groq
+    # 2. Fallback: Groq (uses active models available in organization)
     groq_key = os.getenv("GROQ_API_KEY")
     if groq_key:
-        try:
-            from langchain_groq import ChatGroq
-            llm = ChatGroq(
-                model="llama-3.3-70b-versatile",
-                api_key=groq_key,
-                temperature=0.2,
-                max_tokens=200,
-                timeout=4.0
-            )
-            res = await llm.ainvoke(prompt)
-            if res and res.content:
-                return res.content.strip()
-        except Exception as e:
-            print(f"⚠️ Groq summarizer notice ({e})")
+        from langchain_groq import ChatGroq
+        for groq_model in ["openai/gpt-oss-120b", "llama-3.1-8b-instant"]:
+            try:
+                llm = ChatGroq(
+                    model=groq_model,
+                    api_key=groq_key,
+                    temperature=0.2,
+                    max_tokens=400,
+                    timeout=6.0
+                )
+                res = await llm.ainvoke(prompt)
+                text = _extract_text_content(getattr(res, "content", None))
+                if text:
+                    return text
+            except Exception as e:
+                print(f"⚠️ Groq {groq_model} summarizer notice ({e})")
 
     return None
 

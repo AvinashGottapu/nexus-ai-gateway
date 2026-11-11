@@ -64,6 +64,13 @@ from gateway.session_store import (
     append_session_message,
     clear_session
 )
+from gateway.long_term_memory import (
+    inject_long_term_memory,
+    extract_and_save_memories,
+    list_user_memories,
+    delete_user_memory,
+    clear_user_memories
+)
 
 # Layer D: 09 Observability (Traces, p95 Latency, Token Accounting & Cost Telemetry)
 from observability.tracer import (
@@ -221,6 +228,30 @@ async def remove_conversation(conversation_id: str, user_id: Optional[str] = Non
     await clear_session(conversation_id)
     success = delete_conversation(conversation_id, user_id)
     return {"status": "success" if success else "not_found", "deleted": success}
+
+
+# --- LONG-TERM MEMORY ENDPOINTS ---
+
+@app.get("/api/memories")
+def get_long_term_memories(user_id: str):
+    """Returns all saved long-term user memories from SQLite."""
+    if not user_id:
+        return {"memories": []}
+    return {"memories": list_user_memories(user_id)}
+
+
+@app.delete("/api/memories/{memory_id}")
+def remove_long_term_memory(memory_id: str, user_id: Optional[str] = None):
+    """Deletes a specific saved memory from SQLite."""
+    success = delete_user_memory(memory_id, user_id)
+    return {"status": "success" if success else "not_found", "deleted": success}
+
+
+@app.delete("/api/memories")
+def purge_user_memories(user_id: str):
+    """Clears all long-term memories for a specific user."""
+    deleted_count = clear_user_memories(user_id)
+    return {"status": "success", "deleted_count": deleted_count}
 
 
 # --- GATEWAY & WALLET MANAGEMENT ENDPOINTS ---
@@ -481,6 +512,14 @@ async def upload_and_ingest_file(
 # SHARED INFERENCE PIPELINE
 # =====================================================================
 
+def _resolve_consumer_user_id(req: PromptRequest, client_info: Dict[str, Any]) -> str:
+    """Resolves authenticated Clerk user_id, falling back to request body if anonymous."""
+    verified_uid = client_info.get("user_id")
+    if verified_uid and verified_uid != "usr_anonymous":
+        return verified_uid
+    return req.user_id or verified_uid or "usr_anonymous"
+
+
 async def run_chat_pipeline(
     req: PromptRequest,
     client_info: Dict[str, Any],
@@ -586,6 +625,15 @@ async def run_chat_pipeline(
     intent_data = await classify_intent(safe_prompt)
     timer.record_phase("intent_routing_ms")
 
+    # Layer C+: Long-Term User Memory Injection (Consumer ONLY, < 1 ms SQLite + NumPy)
+    if is_consumer:
+        chat_history = await inject_long_term_memory(
+            chat_history=chat_history,
+            user_id=_resolve_consumer_user_id(req, client_info),
+            prompt=safe_prompt,
+            prompt_vector=prompt_vector
+        )
+
     # 05 Model Gateway: Fetch Model via Orchestrator
     timer.start_phase()
     orch_result = await orchestrate_request(
@@ -650,13 +698,14 @@ async def run_chat_pipeline(
 
     # Layer C: Session Store - Append conversation turns to Redis & SQLite (Consumer ONLY)
     if is_consumer:
+        consumer_uid = _resolve_consumer_user_id(req, client_info)
         await append_session_message(session_id, "user", req.prompt)
         await append_session_message(session_id, "assistant", final_answer)
 
         # Persist permanent conversation turn in SQLite
         save_conversation_turn(
             conversation_id=session_id,
-            user_id=req.user_id or client_info.get("user_id") or "usr_anonymous",
+            user_id=consumer_uid,
             user_prompt=req.prompt,
             assistant_response=final_answer,
             metadata={
@@ -670,6 +719,8 @@ async def run_chat_pipeline(
             },
             model=provider_used
         )
+        # Non-blocking background extraction into Long-Term User Memory
+        asyncio.create_task(extract_and_save_memories(consumer_uid, req.prompt, final_answer))
 
     # 3. Dynamic Cost Calculation based on model-specific pricing catalog
     # (Default nominal cost $0.0001 or computed per provider rates)
@@ -873,6 +924,15 @@ async def sse_token_generator(
     sub_intent_val = intent_data.sub_intent.value if intent_data.sub_intent else None
     routing_sla = None
 
+    # Layer C+: Long-Term User Memory Injection (Consumer ONLY)
+    if is_consumer:
+        chat_history = await inject_long_term_memory(
+            chat_history=chat_history,
+            user_id=_resolve_consumer_user_id(req, client_info),
+            prompt=safe_prompt,
+            prompt_vector=prompt_vector
+        )
+
     # Step 5: Stream from Orchestrator & Model Gateway
     timer.start_phase()
     first_token_sent = False
@@ -939,16 +999,19 @@ async def sse_token_generator(
         await save_to_semantic_cache(safe_prompt, prompt_vector, complete_text, provider_used)
 
     if is_consumer:
+        consumer_uid = _resolve_consumer_user_id(req, client_info)
         await append_session_message(session_id, "user", req.prompt)
         await append_session_message(session_id, "assistant", complete_text)
         save_conversation_turn(
             conversation_id=session_id,
-            user_id=req.user_id or client_info.get("user_id") or "usr_anonymous",
+            user_id=consumer_uid,
             user_prompt=req.prompt,
             assistant_response=complete_text,
             metadata={"provider_used": provider_used, "streaming": True},
             model=provider_used
         )
+        # Non-blocking background extraction into Long-Term User Memory
+        asyncio.create_task(extract_and_save_memories(consumer_uid, req.prompt, complete_text))
 
     timer.record_phase("output_guardrails_ms")
 

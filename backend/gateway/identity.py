@@ -416,8 +416,21 @@ def init_db():
             )
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_memories (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                fact TEXT NOT NULL,
+                category TEXT DEFAULT 'general',
+                embedding_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_user ON user_memories(user_id)")
 
         # Migration: ensure summary column exists on conversations table
         try:
